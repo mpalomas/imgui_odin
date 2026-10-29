@@ -1,0 +1,105 @@
+# Checks the generator and the generated files, builds Dear ImGui from upstream/ on Linux and macOS, runs
+# the ABI check and the headless tests against it, and builds the example (not run: the runners have no
+# GPU). Also type-checks everything for the other platform, and lints the scripts.
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-odin
+
+      # Also checks that imgui/imgui_generated.odin and tools/abi/ match upstream/.
+      - name: Test the generator
+        run: odin test tools/gen -out:gen_test.bin
+
+      # The packages refuse to compile without their libraries, and type-checking does not link: empty files
+      # stand in for them.
+      - name: Create placeholder libraries
+        run: |
+          mkdir -p lib/linux-x86_64 lib/macos-arm64
+          touch lib/linux-x86_64/libdcimgui.a lib/linux-x86_64/libdcimgui.so
+          touch lib/macos-arm64/libdcimgui.a lib/macos-arm64/libdcimgui.dylib
+          vendor_lib="$(odin root)/vendor/wgpu/lib"
+          for dir in wgpu-linux-x86_64-release wgpu-macos-aarch64-release; do
+            mkdir -p "$vendor_lib/$dir/lib"
+            touch "$vendor_lib/$dir/lib/libwgpu_native.a"
+          done
+
+      - name: Type-check the packages, the tests and the example
+        run: |
+          for target in linux_amd64 darwin_arm64; do
+            echo "::group::$target"
+            odin check imgui -no-entry-point -target:$target
+            odin check imgui -no-entry-point -target:$target -define:IMGUI_SHARED=true
+            odin check imgui/imgui_impl_glfw -no-entry-point -target:$target
+            odin check imgui/imgui_impl_wgpu -no-entry-point -target:$target
+            odin check tests -no-entry-point -target:$target
+            odin check examples/glfw_wgpu -target:$target
+            echo "::endgroup::"
+          done
+
+      - name: Check the scripts
+        run: shellcheck --severity=warning tools/*.sh tools/abi/*.sh
+
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, macos-latest]
+    name: build (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-odin
+
+      # vendor:glfw links the system GLFW on Linux, and ships it for macOS.
+      - name: Install GLFW
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libglfw3-dev
+
+      - name: Build Dear ImGui
+        run: tools/build_imgui.sh
+
+      - name: Check the ABI
+        run: tools/abi/check.sh
+
+      - name: Run the tests
+        run: odin test tests -out:tests.bin
+
+      - name: Build the example
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tools/fetch_wgpu_native.sh
+          odin build examples/glfw_wgpu -out:glfw_wgpu.bin
+          odin build examples/glfw_wgpu -define:IMGUI_SHARED=true -out:glfw_wgpu-shared.bin
+          ls -l ./*.bin

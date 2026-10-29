@@ -1,0 +1,46 @@
+name: Set up Odin
+description: Downloads an Odin nightly build or release and adds it to the PATH.
+
+inputs:
+  # Odin only runs the generator and builds the examples here, so a nightly cannot break the published
+  # libraries. The nightly list (https://odin-lang.org/docs/nightly/) only keeps the last few days, so a
+  # given nightly cannot be pinned: use a release tag for that. Not dev-2026-10, whose compiler crashes on
+  # macOS on any use of Objective-C ("missing procedure 'objc_lookUpClass'").
+  version:
+    description: nightly (the latest nightly build), or a release tag (https://github.com/odin-lang/Odin/releases)
+    default: nightly
+
+runs:
+  using: composite
+  steps:
+    - name: Download Odin (${{ inputs.version }})
+      shell: bash
+      env:
+        ODIN_VERSION: ${{ inputs.version }}
+      run: |
+        case "$RUNNER_OS-$RUNNER_ARCH" in
+          Linux-X64)   platform=linux-amd64 ;;
+          macOS-ARM64) platform=macos-arm64 ;;
+          *) echo "::error::no Odin build for $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
+        esac
+        archive="$RUNNER_TEMP/odin.tar.gz"
+        if [[ "$ODIN_VERSION" == nightly ]]; then
+          # {"files": {"<date>": [{"name", "url", "sha1"}, ...]}}: the latest date's file for this platform.
+          json="$(curl -fsSL --retry 3 https://odinbinaries.thisdrunkdane.io/file/odin-binaries/nightly.json)"
+          file="$(jq -c --arg p "odin-$platform-nightly+" '
+            .files | to_entries | sort_by(.key) | last | .value[] | select(.name | startswith($p))' <<<"$json")"
+          [[ -n "$file" ]] || { echo "::error::no $platform nightly in nightly.json"; exit 1; }
+          echo "Nightly: $(jq -r .name <<<"$file")"
+          curl -fsSL --retry 3 -o "$archive" "$(jq -r .url <<<"$file")"
+          sha1="$(jq -r .sha1 <<<"$file")"
+          if command -v sha1sum >/dev/null; then actual="$(sha1sum "$archive" | cut -d ' ' -f 1)"; else actual="$(shasum "$archive" | cut -d ' ' -f 1)"; fi
+          [[ "$actual" == "$sha1" ]] || { echo "::error::SHA-1 mismatch for the nightly: $actual, expected $sha1"; exit 1; }
+        else
+          curl -fsSL --retry 3 -o "$archive" "https://github.com/odin-lang/Odin/releases/download/$ODIN_VERSION/odin-$platform-$ODIN_VERSION.tar.gz"
+        fi
+        dir="$RUNNER_TEMP/odin"
+        mkdir -p "$dir"
+        # The archive holds one directory, odin-<platform>-nightly+<date>/ (releases too).
+        tar -xzf "$archive" -C "$dir" --strip-components=1
+        echo "$dir" >> "$GITHUB_PATH"
+        "$dir/odin" version

@@ -1,0 +1,304 @@
+# Imports a dear_bindings release and the matching Dear ImGui sources, builds the library static and shared
+# for Linux and macOS, regenerates the bindings, and checks them against the library (ABI check, tests,
+# example). With `publish`, then creates the release imgui-<imgui tag>-db<dear_bindings version> with the
+# libraries, and opens a pull request that commits the sources and bindings and pins the release in
+# upstream/release.env (read by tools/fetch_imgui_libs.sh).
+#
+# Opening the pull request requires Settings > Actions > General > "Allow GitHub Actions to create and
+# approve pull requests".
+name: Build Dear ImGui
+
+on:
+  workflow_dispatch:
+    inputs:
+      dear_bindings:
+        description: dear_bindings release tag (DearBindings_v0.26_ImGui_v1.93.0-docking), empty for the latest docking release
+        default: ''
+      revision:
+        description: Build revision, for a new release of the same versions (another imconfig_odin.h or build); 1 for none
+        default: '1'
+      publish:
+        description: Publish a release and open a pull request with the bindings
+        type: boolean
+        default: true
+  workflow_call:
+    inputs:
+      dear_bindings:
+        type: string
+        default: ''
+      revision:
+        type: string
+        default: '1'
+      publish:
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      dear_bindings_tag: ${{ steps.resolve.outputs.DEAR_BINDINGS_TAG }}
+      dear_bindings_version: ${{ steps.resolve.outputs.DEAR_BINDINGS_VERSION }}
+      imgui_tag: ${{ steps.resolve.outputs.IMGUI_TAG }}
+      release_tag: ${{ steps.resolve.outputs.RELEASE_TAG }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Resolve the versions
+        id: resolve
+        env:
+          DEAR_BINDINGS: ${{ inputs.dear_bindings }}
+          REVISION: ${{ inputs.revision }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ -z "$DEAR_BINDINGS" ]]; then
+            env="$(tools/latest_dear_bindings.sh --env)"
+          elif [[ "$DEAR_BINDINGS" =~ ^DearBindings_v([0-9.]+)_ImGui_(v.*)$ ]]; then
+            env="DEAR_BINDINGS_TAG=$DEAR_BINDINGS
+          DEAR_BINDINGS_VERSION=${BASH_REMATCH[1]}
+          IMGUI_TAG=${BASH_REMATCH[2]}"
+          else
+            echo "::error::'$DEAR_BINDINGS' is not a dear_bindings release tag"
+            exit 1
+          fi
+          [[ "$REVISION" =~ ^[1-9][0-9]*$ ]] || { echo "::error::revision must be a positive number"; exit 1; }
+          imgui_tag="$(sed -n 's/^IMGUI_TAG=//p' <<<"$env")"
+          version="$(sed -n 's/^DEAR_BINDINGS_VERSION=//p' <<<"$env")"
+          release="imgui-$imgui_tag-db$version"
+          if [[ "$REVISION" != 1 ]]; then
+            release="$release-r$REVISION"
+          fi
+          { echo "$env"; echo "RELEASE_TAG=$release"; } | sed 's/^ *//' | tee -a "$GITHUB_OUTPUT"
+
+  # Without Odin: Linux on the oldest runner, so the libraries need an older glibc.
+  build:
+    needs: resolve
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-22.04
+          - platform: macos-arm64
+            runner: macos-latest
+    name: build (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    env:
+      DEAR_BINDINGS_TAG: ${{ needs.resolve.outputs.dear_bindings_tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Import the sources
+        run: tools/update_imgui.sh --sources-only "$DEAR_BINDINGS_TAG"
+
+      # macOS: macOS 13+.
+      - name: Build Dear ImGui
+        run: |
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            export MACOSX_DEPLOYMENT_TARGET=13.0
+          fi
+          tools/build_imgui.sh all
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: build-${{ matrix.platform }}
+          path: |
+            lib/${{ matrix.platform }}
+            upstream
+          if-no-files-found: error
+
+  verify:
+    needs: [resolve, build]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-24.04
+          # macOS 14: the GLFW library of vendor:glfw targets it (the ImGui libraries target 13).
+          - platform: macos-arm64
+            runner: macos-latest
+            flags: -minimum-os-version:14.0
+    name: verify (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    env:
+      PLATFORM: ${{ matrix.platform }}
+      FLAGS: ${{ matrix.flags }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-odin
+
+      - name: Install GLFW
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libglfw3-dev
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: build-${{ matrix.platform }}
+          path: .
+
+      - name: Generate the bindings
+        run: |
+          odin run tools/gen -out:tools/gen/gen.bin -- \
+            upstream/dear_bindings/dcimgui_nodefaultargfunctions.json upstream/imconfig_odin.h \
+            imgui/imgui_generated.odin tools/abi
+          git status --short
+
+      - name: Check the ABI
+        run: tools/abi/check.sh
+
+      - name: Run the tests
+        run: |
+          odin test tests -out:tests.bin
+          # Next to the shared library, which it finds through its rpath. odin test deletes it afterwards.
+          odin test tests -define:IMGUI_SHARED=true -out:lib/"$PLATFORM"/tests-shared.bin
+
+      # Built only: the runners have no GPU to run it.
+      - name: Build the example
+        run: |
+          tools/fetch_wgpu_native.sh
+          # FLAGS holds several flags.
+          # shellcheck disable=SC2086
+          odin build examples/glfw_wgpu $FLAGS -out:glfw_wgpu.bin
+          # shellcheck disable=SC2086
+          odin build examples/glfw_wgpu $FLAGS -define:IMGUI_SHARED=true -out:glfw_wgpu-shared.bin
+          ls -l ./*.bin
+
+      - name: Package the libraries
+        run: |
+          # No AppleDouble files from macOS tar.
+          COPYFILE_DISABLE=1 tar -czf "dcimgui-$PLATFORM.tar.gz" lib/"$PLATFORM"/libdcimgui.*
+          tar -tzvf "dcimgui-$PLATFORM.tar.gz"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: dcimgui-${{ matrix.platform }}.tar.gz
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: bindings-${{ matrix.platform }}
+          path: |
+            upstream
+            imgui/imgui_generated.odin
+            tools/abi/abi_check.c
+            tools/abi/odin/main.odin
+          if-no-files-found: error
+
+  publish:
+    needs: [resolve, verify]
+    if: inputs.publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      DEAR_BINDINGS_TAG: ${{ needs.resolve.outputs.dear_bindings_tag }}
+      IMGUI_TAG: ${{ needs.resolve.outputs.imgui_tag }}
+      TAG: ${{ needs.resolve.outputs.release_tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # With the token persisted, to push the pull request's branch.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: bindings-*
+          path: ${{ runner.temp }}/bindings
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: release-*
+          path: ${{ runner.temp }}/assets
+          merge-multiple: true
+
+      # The JSON has no platform-specific declarations, so both platforms must generate the same bindings.
+      - name: Check that the platforms agree
+        run: diff -r "$RUNNER_TEMP/bindings/bindings-linux-x86_64" "$RUNNER_TEMP/bindings/bindings-macos-arm64"
+
+      - name: Create the release
+        run: |
+          generated="$RUNNER_TEMP/bindings/bindings-linux-x86_64"
+          assets="$RUNNER_TEMP/assets"
+          cp "$generated/upstream/dear_bindings/dcimgui_nodefaultargfunctions.h" "$generated/upstream/imconfig_odin.h" "$assets/"
+          (cd "$assets" && sha256sum dcimgui-*.tar.gz dcimgui_nodefaultargfunctions.h imconfig_odin.h > SHA256SUMS && cat SHA256SUMS)
+          commit="$(sed -n 's/^IMGUI_COMMIT=//p' "$generated/upstream/version.env")"
+          notes="Dear ImGui $IMGUI_TAG (https://github.com/ocornut/imgui/commit/$commit) with its C API from dear_bindings $DEAR_BINDINGS_TAG (https://github.com/dearimgui/dear_bindings/releases/tag/$DEAR_BINDINGS_TAG), configured by imconfig_odin.h.
+
+          Static and shared libraries for Linux x86_64 (built on Ubuntu 22.04) and macOS arm64 (macOS 13+), with no C++ runtime dependency. Download them with \`tools/fetch_imgui_libs.sh\`.
+
+          Built by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$assets"/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" "$assets"/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "Dear ImGui $IMGUI_TAG (dear_bindings $DEAR_BINDINGS_TAG)" --notes "$notes"
+          fi
+
+      - name: Open a pull request with the bindings
+        run: |
+          generated="$RUNNER_TEMP/bindings/bindings-linux-x86_64"
+          rm -rf upstream/imgui upstream/dear_bindings
+          cp -R "$generated/upstream/." upstream/
+          cp "$generated/imgui/imgui_generated.odin" imgui/
+          cp "$generated/tools/abi/abi_check.c" tools/abi/
+          cp "$generated/tools/abi/odin/main.odin" tools/abi/odin/
+          cat > upstream/release.env <<EOF
+          # The release whose libraries match these bindings, downloaded by tools/fetch_imgui_libs.sh.
+          # Written by .github/workflows/build-imgui.yml.
+          DEAR_BINDINGS_TAG=$DEAR_BINDINGS_TAG
+          IMGUI_TAG=$IMGUI_TAG
+          RELEASE_TAG=$TAG
+          EOF
+          sed -i 's/^ *//' upstream/release.env
+          if [[ -z "$(git status --porcelain)" ]]; then
+            echo "The bindings and the pin are up to date"
+            exit 0
+          fi
+          git status --short
+
+          branch="imgui/$TAG"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          git add -A upstream imgui tools/abi
+          git commit -m "Update Dear ImGui to $IMGUI_TAG (dear_bindings $DEAR_BINDINGS_TAG)" -m "Release $TAG."
+          git push --force origin "$branch"
+
+          if [[ -n "$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --state open --json number --jq '.[].number')" ]]; then
+            echo "The pull request for $branch exists already, its branch is updated"
+            exit 0
+          fi
+          body="Updates Dear ImGui to $IMGUI_TAG and its C API to dear_bindings $DEAR_BINDINGS_TAG, regenerates the bindings, and pins the release [$TAG]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG).
+
+          Generated by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID, which checked the ABI, ran the tests and built the example against the libraries on Linux and macOS.
+
+          Pull requests opened by GitHub Actions do not trigger CI: close and reopen this one to run it."
+          gh pr create --repo "$GITHUB_REPOSITORY" --base "$GITHUB_REF_NAME" --head "$branch" \
+            --title "Update Dear ImGui to $IMGUI_TAG (dear_bindings $DEAR_BINDINGS_TAG)" --body "$body" || {
+            echo "::error::Cannot open the pull request. Enable Settings > Actions > General > 'Allow GitHub Actions to create and approve pull requests', or open it by hand from $branch."
+            exit 1
+          }

@@ -1,0 +1,64 @@
+# Weekly: when dear_bindings has a newer docking release than the one pinned in upstream/release.env, runs
+# build-imgui.yml for it, which publishes a release and opens a pull request. Skipped while that release
+# exists already, i.e. while its pull request waits for a merge.
+name: Update Dear ImGui
+
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Mondays, 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      dear_bindings: ${{ steps.check.outputs.dear_bindings }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Compare the latest dear_bindings release with the pinned one
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest="$(tools/latest_dear_bindings.sh --env)"
+          echo "$latest"
+          tag="$(sed -n 's/^DEAR_BINDINGS_TAG=//p' <<<"$latest")"
+          version="$(sed -n 's/^DEAR_BINDINGS_VERSION=//p' <<<"$latest")"
+          imgui_tag="$(sed -n 's/^IMGUI_TAG=//p' <<<"$latest")"
+          release="imgui-$imgui_tag-db$version"
+          pinned=""
+          if [[ -f upstream/release.env ]]; then
+            pinned="$(sed -n 's/^DEAR_BINDINGS_TAG=//p' upstream/release.env)"
+          fi
+          echo "Pinned: ${pinned:-none}"
+          if [[ "$tag" == "$pinned" ]]; then
+            echo "Up to date"
+            exit 0
+          fi
+          if gh release view "$release" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "The release $release exists already: merge its pull request"
+            exit 0
+          fi
+          echo "dear_bindings=$tag" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: check
+    if: needs.check.outputs.dear_bindings != ''
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/build-imgui.yml
+    with:
+      dear_bindings: ${{ needs.check.outputs.dear_bindings }}
+      publish: true
