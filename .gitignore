@@ -1,0 +1,7 @@
+prompt.md
+lib/**/*.a
+lib/**/*.so
+lib/**/*.dylib
+/build/
+*.bin
+imgui.ini
