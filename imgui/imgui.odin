@@ -7,26 +7,29 @@ package imgui
 
 import "core:c"
 
-// Link the shared library (libdcimgui.dylib or .so) instead of the static one.
-// Enable with -define:IMGUI_SHARED=true.
+// Link the shared library (libdcimgui.dylib or .so, dcimgui.dll through dcimgui.dll.lib) instead of the
+// static one. Enable with -define:IMGUI_SHARED=true.
 IMGUI_SHARED :: #config(IMGUI_SHARED, false)
 
-when ODIN_OS == .Linux {
-	@(private) OS  :: "linux"
-	@(private) EXT :: ".so" when IMGUI_SHARED else ".a"
+when ODIN_OS == .Windows {
+	@(private) OS   :: "windows"
+	@(private) FILE :: "dcimgui.dll.lib" when IMGUI_SHARED else "dcimgui.lib"
+} else when ODIN_OS == .Linux {
+	@(private) OS   :: "linux"
+	@(private) FILE :: "libdcimgui.so" when IMGUI_SHARED else "libdcimgui.a"
 } else when ODIN_OS == .Darwin {
-	@(private) OS  :: "macos"
-	@(private) EXT :: ".dylib" when IMGUI_SHARED else ".a"
+	@(private) OS   :: "macos"
+	@(private) FILE :: "libdcimgui.dylib" when IMGUI_SHARED else "libdcimgui.a"
 } else {
-	#panic("imgui_odin: only Linux and macOS are supported for now")
+	#panic("imgui_odin: only Windows, Linux and macOS are supported for now")
 }
 @(private) ARCH :: "x86_64" when ODIN_ARCH == .amd64 else "arm64" when ODIN_ARCH == .arm64 else #panic("imgui_odin: unsupported architecture")
 
 // Path of the library, relative to this directory. Override with -define:IMGUI_LIB=<path>.
-IMGUI_LIB :: #config(IMGUI_LIB, "../lib/" + OS + "-" + ARCH + "/libdcimgui" + EXT)
+IMGUI_LIB :: #config(IMGUI_LIB, "../lib/" + OS + "-" + ARCH + "/" + FILE)
 
 when !#exists(IMGUI_LIB) {
-	#panic("Could not find the Dear ImGui library at '" + IMGUI_LIB + "'. Run tools/fetch_imgui_libs.sh or tools/build_imgui.sh, or pass -define:IMGUI_LIB=<path>.")
+	#panic("Could not find the Dear ImGui library at '" + IMGUI_LIB + "'. Run tools/fetch_imgui_libs.sh or tools/build_imgui.sh (.ps1 on Windows), or pass -define:IMGUI_LIB=<path>.")
 }
 
 // The `foreign import` is in imgui_generated.odin, since imports are file-scoped.

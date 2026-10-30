@@ -2,6 +2,10 @@ prompt.md
 lib/**/*.a
 lib/**/*.so
 lib/**/*.dylib
+lib/**/*.lib
+lib/**/*.dll
 /build/
 *.bin
+*.exe
+*.pdb
 imgui.ini

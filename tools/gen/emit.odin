@@ -76,8 +76,16 @@ FORMAT_HELPERS :: [?][2]string{
 	{"ImGuiTextBuffer_appendf", "ImGuiTextBuffer_append"},
 }
 
-LIBRARY :: `// The library and its dependencies. IMGUI_LIB is in imgui.odin.
-when ODIN_OS == .Linux {
+LIBRARY :: `// The library and its dependencies. IMGUI_LIB is in imgui.odin. On Windows, Dear ImGui's default
+// clipboard, shell and IME functions use user32, shell32 and imm32.
+when ODIN_OS == .Windows {
+	foreign import lib {
+		IMGUI_LIB,
+		"system:user32.lib",
+		"system:shell32.lib",
+		"system:imm32.lib",
+	}
+} else when ODIN_OS == .Linux {
 	foreign import lib {
 		IMGUI_LIB,
 		"system:m",
