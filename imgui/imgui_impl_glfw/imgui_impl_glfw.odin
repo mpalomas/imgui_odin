@@ -3,9 +3,9 @@
 // imgui_impl_wgpu.
 //
 // Implemented: clipboard, mouse, keyboard, gamepad (with ConfigFlags.NavEnableGamepad), mouse cursor
-// shapes, several Dear ImGui contexts.
+// shapes, several Dear ImGui contexts, on Windows touch screen and pen input (imgui_impl_glfw_windows.odin).
 // Not ported (yet): multi-viewports (ConfigFlags.ViewportsEnable is ignored; docking works inside the
-// main window), the Win32 and Emscripten specific code.
+// main window), the Emscripten specific code.
 //
 //	imgui_impl_glfw.InitForOther(window)  // After im.CreateContext(), before the renderer's Init.
 //	// Each frame, before im.NewFrame():
@@ -59,6 +59,9 @@ Data :: struct {
 	prev_key:                                 glfw.KeyProc,
 	prev_char:                                glfw.CharProc,
 	prev_monitor:                             glfw.MonitorProc,
+
+	// Windows: the window procedure before ours (imgui_impl_glfw_windows.odin).
+	prev_wndproc:                             rawptr,
 }
 
 // The backend data of each GLFW window, whatever the current context: GLFW sends the events of all
@@ -447,7 +450,10 @@ init :: proc(window: glfw.WindowHandle, install_callbacks: bool, client_api: Cli
 
 	main_viewport := im.GetMainViewport()
 	main_viewport.PlatformHandle = rawptr(window)
-	when ODIN_OS == .Darwin {
+	when ODIN_OS == .Windows {
+		main_viewport.PlatformHandleRaw = rawptr(glfw.GetWin32Window(window))
+		install_wndproc(bd, window)
+	} else when ODIN_OS == .Darwin {
 		main_viewport.PlatformHandleRaw = rawptr(glfw.GetCocoaWindow(window))
 	}
 	return true
@@ -475,6 +481,9 @@ Shutdown :: proc() {
 	im.DestroyPlatformWindows()
 	if bd.installed_callbacks {
 		RestoreCallbacks(bd.window)
+	}
+	when ODIN_OS == .Windows {
+		uninstall_wndproc(bd)
 	}
 	for cursor in bd.mouse_cursors {
 		if cursor != nil {
