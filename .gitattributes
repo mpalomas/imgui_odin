@@ -1,0 +1,3 @@
+# LF everywhere, also on Windows, where Git converts to CRLF by default: tools/gen compares the generated
+# files byte for byte, and bash runs the .sh scripts.
+* text=auto eol=lf
