@@ -32,6 +32,35 @@ Deviations from the plan below:
   Odin map, per frame, as the C++ does with an ImGuiStorage.
 - `tools/fetch_wgpu_native.sh` was added, for `vendor:wgpu` on Linux and CI.
 
+## Windows (2026-10-30)
+
+Windows x86_64 is supported, verified locally (Visual Studio 2026, MSVC 19.51, CMake 4.3, Odin
+dev-2026-10 nightly): library build (~15 s), ABI check (1,421 items, bitfields included, under MSVC),
+runtime tests (static and shared), example built and run.
+
+- **Build: CMake** (`CMakeLists.txt`, MSVC only), run by `tools/build_imgui.ps1`. CMake's Visual Studio
+  generator finds the newest Visual Studio (or Build Tools) through vswhere: no hard-coded paths, no
+  developer prompt. `CMAKE_GENERATOR` pins a version (CI: `Visual Studio 18 2026`) or selects Ninja. The
+  sources are compiled twice (static, DLL), since `CIMGUI_API` is `__declspec(dllexport)` only in the DLL.
+- **Outputs:** `dcimgui.lib`, `dcimgui.dll` + `dcimgui.dll.lib` (named like wgpu-native's in
+  `vendor:wgpu`). `/MT` (static CRT), as Odin links `libcmt`: the DLL imports only system DLLs (kernel32,
+  user32, shell32, imm32). `/GR- /EHs-c- /Zc:threadSafeInit-`; the only C++ runtime symbol left is the
+  sized `operator delete`, which `libcmt` (vcruntime) provides. The static library is built `/Zl`.
+- **Odin side:** `imgui.odin` selects `lib/windows-<arch>/dcimgui{,.dll}.lib`; the generated
+  `foreign import` adds `user32`, `shell32`, `imm32` (Dear ImGui's default Win32 clipboard, shell and IME
+  functions). `imgui_impl_glfw` sets `PlatformHandleRaw` to the HWND and ports the C++ window procedure
+  hook that tells mouse, touch and pen apart (`imgui_impl_glfw_windows.odin`).
+- **Scripts:** PowerShell 7.4+ versions of `build_imgui`, `fetch_imgui_libs`, `update_imgui`,
+  `latest_dear_bindings` and `abi/check` (`tools/abi/CMakeLists.txt` compiles the C side). No
+  `fetch_wgpu_native` for Windows: Odin ships wgpu-native and GLFW there.
+- **Line endings:** `.gitattributes` (`* text=auto eol=lf`), since Git for Windows (and the runners)
+  check out CRLF and the generator test compares bytes. `update_imgui.ps1` clones ImGui with
+  `core.eol=lf`, so that all platforms import identical sources.
+- **CI:** `windows-2025-vs2026` runners. `setup-odin` downloads the Windows zip (the nightly has no
+  SHA-1 in `nightly.json`). `ci.yml`: a Windows build job, `windows_amd64` type-check, PSScriptAnalyzer.
+  `build-imgui.yml`: Windows in the build and verify matrices, the release archive
+  `dcimgui-windows-x86_64.tar.gz`, and the publish job checks that all three platforms agree.
+
 ## Scope
 
 In:
@@ -46,12 +75,12 @@ In:
   for CI, building and publishing releases, opening pull requests.
 
 Out, for now: the C++ backends (none are compiled), `imgui_internal.h` (the `dcimgui_internal.*` files),
-Windows, multi-viewports (see [Phase 8](#phase-8--later)), the Dawn bindings (the wgpu backend is written
+multi-viewports (see [Phase 8](#phase-8--later)), the Dawn bindings (the wgpu backend is written
 so that switching is easy), an Odin port of `imgui_demo.cpp`.
 
 No Python anywhere: the release files are enough. dear_bindings' Python generator is never run; the
 generator, the ABI check and all tooling are Odin + bash + curl (+ `gh` when available, as in
-`dawn_webgpu_odin`).
+`dawn_webgpu_odin`); on Windows, Odin + PowerShell + CMake.
 
 ## What the dear_bindings release gives us (verified)
 
@@ -377,7 +406,7 @@ Optional, cheap here: `linux-arm64` on `ubuntu-24.04-arm` runners (free on publi
   layouts need. Same generator, second output file.
 - Switch the wgpu backend to `dawn_webgpu_odin` (collection, or import swap).
 - Odin port of `imgui_demo.cpp`, as the definitive bindings test.
-- Windows (MSVC build, `.lib`), more backends (SDL3 via `vendor:sdl3`).
+- More backends (SDL3 via `vendor:sdl3`). Windows arm64 (the scripts handle it; no Odin build for it).
 
 ## Risks
 

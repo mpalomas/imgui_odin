@@ -2,13 +2,16 @@
 
 Odin bindings for [Dear ImGui](https://github.com/ocornut/imgui) (docking branch), through the C API of
 [dear_bindings](https://github.com/dearimgui/dear_bindings), with the GLFW and WebGPU backends written in
-Odin. Supported: Linux x86_64 and macOS arm64.
+Odin. Supported: Linux x86_64, macOS arm64 and Windows x86_64.
 
 Currently Dear ImGui 1.93.0 (docking), dear_bindings 0.26 (`upstream/version.env`).
 
 The bindings are generated from dear_bindings' `dcimgui.json` by an Odin program, and checked against
 the C headers by an ABI check. The library, Dear ImGui and its C API, builds in seconds with a C++
 compiler, or comes prebuilt from this repository's releases. It has no C++ runtime dependency.
+
+Each script in `tools/` is a bash script (`.sh`) for Linux and macOS, with a PowerShell 7.4+ version
+(`.ps1`) for Windows, except `fetch_wgpu_native.sh`, which Windows does not need.
 
 ## Layout
 
@@ -22,14 +25,15 @@ compiler, or comes prebuilt from this repository's releases. It has no C++ runti
 | `upstream/imconfig_odin.h` | The Dear ImGui configuration of the library and the bindings. |
 | `upstream/version.env` | The dear_bindings release and Dear ImGui commit in `upstream/`. |
 | `upstream/release.env` | The release whose libraries match the bindings. |
-| `lib/<os>-<arch>/` | `libdcimgui.a` and `.dylib`/`.so`, from `fetch_imgui_libs.sh` or `build_imgui.sh`. Not committed. |
+| `lib/<os>-<arch>/` | `libdcimgui.a` and `.dylib`/`.so`; on Windows `dcimgui.lib`, and `dcimgui.dll` with its import library `dcimgui.dll.lib`. From `fetch_imgui_libs` or `build_imgui`. Not committed. |
+| `CMakeLists.txt` | The Windows build of the library (MSVC), run by `build_imgui.ps1`. |
 | `tools/gen/` | The generator, `dcimgui.json` → Odin, with its tests. |
-| `tools/abi/` | The ABI check (generated programs, and `check.sh`). |
-| `tools/update_imgui.sh` | Imports a dear_bindings release and its Dear ImGui sources, regenerates the bindings. |
-| `tools/build_imgui.sh` | Builds the library from `upstream/`. |
-| `tools/fetch_imgui_libs.sh` | Downloads the prebuilt libraries matching the bindings. |
-| `tools/latest_dear_bindings.sh` | Prints the latest docking release of dear_bindings. |
-| `tools/fetch_wgpu_native.sh` | Downloads the wgpu-native libraries `vendor:wgpu` links, for the example. |
+| `tools/abi/` | The ABI check (generated programs, `check.sh` and `check.ps1`). |
+| `tools/update_imgui.{sh,ps1}` | Imports a dear_bindings release and its Dear ImGui sources, regenerates the bindings. |
+| `tools/build_imgui.{sh,ps1}` | Builds the library from `upstream/`. |
+| `tools/fetch_imgui_libs.{sh,ps1}` | Downloads the prebuilt libraries matching the bindings. |
+| `tools/latest_dear_bindings.{sh,ps1}` | Prints the latest docking release of dear_bindings. |
+| `tools/fetch_wgpu_native.sh` | Downloads the wgpu-native libraries `vendor:wgpu` links on Linux, for the example. |
 | `tests/` | Runtime tests, headless. |
 | `examples/glfw_wgpu/` | GLFW + WebGPU, with docking and the demo window. |
 | `.github/` | CI, and the workflows that build and publish the library ([GitHub Actions](#github-actions)). |
@@ -42,23 +46,36 @@ Build the library (about 5 seconds, needs only `c++` and `ar`):
 tools/build_imgui.sh                 # static and shared; or: static, shared
 ```
 
+On Windows (about 15 seconds), with [CMake](https://cmake.org) and Visual Studio 2026 or its Build Tools
+("Desktop development with C++"). CMake finds Visual Studio itself, so no developer prompt is needed. It
+uses the newest installed version; set `CMAKE_GENERATOR` to choose one (`Visual Studio 18 2026`), or to
+`Ninja` from a developer prompt:
+
+```powershell
+tools/build_imgui.ps1                # static and shared; or: static, shared
+```
+
+The Windows libraries use the static C runtime (`/MT`), as Odin programs do, so `dcimgui.dll` needs no
+Visual C++ redistributable.
+
 Or download the prebuilt one of the release pinned in `upstream/release.env`, built by
-[GitHub Actions](#github-actions) for Linux x86_64 (glibc 2.35+) and macOS arm64 (13+):
+[GitHub Actions](#github-actions) for Linux x86_64 (glibc 2.35+), macOS arm64 (13+) and Windows x86_64:
 
 ```sh
 tools/fetch_imgui_libs.sh            # this machine's platform, or e.g. linux-x86_64 macos-arm64
+tools/fetch_imgui_libs.ps1           # the same, in PowerShell
 ```
 
 ## Example
 
 ```sh
-odin run examples/glfw_wgpu                                              # macOS
+odin run examples/glfw_wgpu                                              # macOS, Windows
 tools/fetch_wgpu_native.sh && odin run examples/glfw_wgpu               # Linux, needs libglfw3
 ```
 
-`vendor:wgpu` needs wgpu-native in `$(odin root)/vendor/wgpu/lib/`: Odin ships it for macOS arm64,
-`fetch_wgpu_native.sh` downloads it for other platforms. Esc quits, `--seconds=N` closes the window after
-N seconds.
+`vendor:wgpu` needs wgpu-native in `$(odin root)/vendor/wgpu/lib/`: Odin ships it for macOS arm64 and
+Windows x86_64, and `fetch_wgpu_native.sh` downloads it for Linux. Esc quits, `--seconds=N` closes the
+window after N seconds.
 
 ## Using the bindings
 
@@ -94,7 +111,8 @@ Build options:
 
 - `-define:IMGUI_SHARED=true` links the shared library. The program finds it through the rpath, which
   Odin sets to the executable's directory: copy the library there, or add one with e.g.
-  `-extra-linker-flags:"-Wl,-rpath,@loader_path/../lib/macos-arm64"` (`$ORIGIN` on Linux).
+  `-extra-linker-flags:"-Wl,-rpath,@loader_path/../lib/macos-arm64"` (`$ORIGIN` on Linux). On Windows,
+  the program links `dcimgui.dll.lib` and loads `dcimgui.dll` from its directory or the `PATH`.
 - `-define:IMGUI_LIB=<path>` links another build of the library, relative to `imgui/`. It must be built
   with `upstream/imconfig_odin.h`. Set `IMGUI_SHARED` to match.
 
@@ -142,7 +160,8 @@ procedures (`InitForOther`, `NewFrame`, `RenderDrawData`, `UpdateTexture`, `GetR
 
 - `imgui_impl_glfw`: keyboard (with the translation of GLFW's untranslated keys), mouse, gamepad
   (`ConfigFlags.NavEnableGamepad`), cursors, clipboard, content scale, several contexts, chained user
-  callbacks. Not yet: multi-viewports (`ConfigFlags.ViewportsEnable`), which the C++ WebGPU backend does
+  callbacks, and on Windows touch screen and pen input (as the C++ backend, through a window procedure
+  hook). Not yet: multi-viewports (`ConfigFlags.ViewportsEnable`), which the C++ WebGPU backend does
   not support either; docking works inside the main window.
 - `imgui_impl_wgpu`: dynamic font atlas and user textures, large meshes, the standard draw callbacks
   (`PlatformIO.DrawCallback_*`). Uses only the API common to `vendor:wgpu` and `dawn_webgpu_odin`.
@@ -151,6 +170,7 @@ procedures (`InitForOther`, `NewFrame`, `RenderDrawData`, `UpdateTexture`, `GetR
 
 ```sh
 tools/update_imgui.sh DearBindings_v0.26_ImGui_v1.93.0-docking
+tools/update_imgui.ps1 DearBindings_v0.26_ImGui_v1.93.0-docking     # Windows
 ```
 
 downloads the dear_bindings release (checked against GitHub's SHA-256 digests), clones Dear ImGui at the
@@ -163,8 +183,8 @@ is built for them. The `build-imgui.yml` workflow does all of this and the relea
 
 | Workflow | Runs | Does |
 |---|---|---|
-| `ci.yml` | On pushes to `master` and pull requests | Tests the generator and checks that the generated files are up to date, type-checks everything for Linux and macOS, lints the scripts. On Linux and macOS: builds the library, runs the ABI check and the tests, builds the example. |
-| `build-imgui.yml` | By hand (Actions > Build Dear ImGui > Run workflow), with a dear_bindings release tag (empty for the latest) | Builds the library static and shared on Linux (Ubuntu 22.04) and macOS, regenerates the bindings, runs the ABI check and the tests against the libraries, builds the example. With `publish`: creates the release `imgui-<imgui tag>-db<dear_bindings version>`, and opens a pull request that commits the sources, the bindings and `upstream/release.env`. |
+| `ci.yml` | On pushes to `master` and pull requests | Tests the generator and checks that the generated files are up to date, type-checks everything for Linux, macOS and Windows, lints the bash and PowerShell scripts. On Linux, macOS and Windows: builds the library, runs the ABI check and the tests, builds the example. |
+| `build-imgui.yml` | By hand (Actions > Build Dear ImGui > Run workflow), with a dear_bindings release tag (empty for the latest) | Builds the library static and shared on Linux (Ubuntu 22.04), macOS and Windows (Visual Studio 2026), regenerates the bindings, runs the ABI check and the tests against the libraries, builds the example. With `publish`: creates the release `imgui-<imgui tag>-db<dear_bindings version>`, and opens a pull request that commits the sources, the bindings and `upstream/release.env`. |
 | `update-imgui.yml` | Mondays, or by hand | Runs `build-imgui.yml` when dear_bindings has a newer docking release than the pinned one, unless its release exists already. |
 
 The release holds the libraries; the pull request commits the matching bindings, so merging it is what
@@ -175,9 +195,12 @@ approve pull requests". Pull requests opened by Actions don't trigger CI: close 
 
 ```sh
 odin test tools/gen      # the generator, and that the generated files match upstream/
-tools/abi/check.sh       # the bindings' layout against the C headers (needs the library)
+tools/abi/check.sh       # the bindings' layout against the C headers (needs the library); check.ps1 on Windows
 odin test tests          # Dear ImGui through the bindings, headless (needs the library)
 ```
+
+`.gitattributes` checks out every file with LF line endings, also on Windows, since the generator test
+compares the generated files byte for byte.
 
 ## License
 
