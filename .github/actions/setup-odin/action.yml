@@ -14,6 +14,7 @@ runs:
   using: composite
   steps:
     - name: Download Odin (${{ inputs.version }})
+      if: runner.os != 'Windows'
       shell: bash
       env:
         ODIN_VERSION: ${{ inputs.version }}
@@ -44,3 +45,34 @@ runs:
         tar -xzf "$archive" -C "$dir" --strip-components=1
         echo "$dir" >> "$GITHUB_PATH"
         "$dir/odin" version
+
+    # Windows: a zip, holding one directory (dist/ for the nightlies). nightly.json lists no SHA-1 for it.
+    - name: Download Odin (${{ inputs.version }})
+      if: runner.os == 'Windows'
+      shell: pwsh
+      env:
+        ODIN_VERSION: ${{ inputs.version }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        if ($env:RUNNER_ARCH -ne 'X64') { throw "no Odin build for Windows-$env:RUNNER_ARCH" }
+        $archive = "$env:RUNNER_TEMP/odin.zip"
+        if ($env:ODIN_VERSION -eq 'nightly') {
+          $json = Invoke-RestMethod -MaximumRetryCount 3 https://odinbinaries.thisdrunkdane.io/file/odin-binaries/nightly.json
+          $latest = $json.files.PSObject.Properties | Sort-Object Name | Select-Object -Last 1
+          $file = $latest.Value | Where-Object { $_.name.StartsWith('odin-windows-amd64-nightly+') } | Select-Object -First 1
+          if (-not $file) { throw 'no windows-amd64 nightly in nightly.json' }
+          Write-Host "Nightly: $($file.name)"
+          Invoke-WebRequest -MaximumRetryCount 3 -OutFile $archive $file.url
+          if ($file.sha1 -match '^[0-9a-f]{40}$') {
+            $actual = (Get-FileHash -Algorithm SHA1 $archive).Hash
+            if ($actual -ne $file.sha1.ToUpperInvariant()) { throw "SHA-1 mismatch for the nightly: $actual, expected $($file.sha1)" }
+          }
+        } else {
+          Invoke-WebRequest -MaximumRetryCount 3 -OutFile $archive "https://github.com/odin-lang/Odin/releases/download/$env:ODIN_VERSION/odin-windows-amd64-$env:ODIN_VERSION.zip"
+        }
+        $extracted = "$env:RUNNER_TEMP/odin-zip"
+        Expand-Archive $archive $extracted -Force
+        $odin = Get-ChildItem $extracted -Recurse -Filter odin.exe | Select-Object -First 1
+        if (-not $odin) { throw 'no odin.exe in the archive' }
+        $odin.DirectoryName >> $env:GITHUB_PATH
+        & $odin.FullName version

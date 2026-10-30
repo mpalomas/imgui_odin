@@ -1,5 +1,5 @@
 # Imports a dear_bindings release and the matching Dear ImGui sources, builds the library static and shared
-# for Linux and macOS, regenerates the bindings, and checks them against the library (ABI check, tests,
+# for Linux, macOS and Windows, regenerates the bindings, and checks them against the library (ABI check, tests,
 # example). With `publish`, then creates the release imgui-<imgui tag>-db<dear_bindings version> with the
 # libraries, and opens a pull request that commits the sources and bindings and pins the release in
 # upstream/release.env (read by tools/fetch_imgui_libs.sh).
@@ -80,7 +80,8 @@ jobs:
           fi
           { echo "$env"; echo "RELEASE_TAG=$release"; } | sed 's/^ *//' | tee -a "$GITHUB_OUTPUT"
 
-  # Without Odin: Linux on the oldest runner, so the libraries need an older glibc.
+  # Without Odin: Linux on the oldest runner, so the libraries need an older glibc. Windows with Visual
+  # Studio 2026 (CMakeLists.txt), and PowerShell.
   build:
     needs: resolve
     strategy:
@@ -91,27 +92,43 @@ jobs:
             runner: ubuntu-22.04
           - platform: macos-arm64
             runner: macos-latest
+          - platform: windows-x86_64
+            runner: windows-2025-vs2026
+            cmake_generator: Visual Studio 18 2026
     name: build (${{ matrix.platform }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     env:
       DEAR_BINDINGS_TAG: ${{ needs.resolve.outputs.dear_bindings_tag }}
       GH_TOKEN: ${{ github.token }}
+      CMAKE_GENERATOR: ${{ matrix.cmake_generator }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
 
       - name: Import the sources
+        if: runner.os != 'Windows'
         run: tools/update_imgui.sh --sources-only "$DEAR_BINDINGS_TAG"
+
+      - name: Import the sources
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: tools/update_imgui.ps1 -SourcesOnly $env:DEAR_BINDINGS_TAG
 
       # macOS: macOS 13+.
       - name: Build Dear ImGui
+        if: runner.os != 'Windows'
         run: |
           if [[ "$RUNNER_OS" == macOS ]]; then
             export MACOSX_DEPLOYMENT_TARGET=13.0
           fi
           tools/build_imgui.sh all
+
+      - name: Build Dear ImGui
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: tools/build_imgui.ps1 all
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -133,6 +150,9 @@ jobs:
           - platform: macos-arm64
             runner: macos-latest
             flags: -minimum-os-version:14.0
+          - platform: windows-x86_64
+            runner: windows-2025-vs2026
+            cmake_generator: Visual Studio 18 2026
     name: verify (${{ matrix.platform }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
@@ -140,6 +160,7 @@ jobs:
       PLATFORM: ${{ matrix.platform }}
       FLAGS: ${{ matrix.flags }}
       GH_TOKEN: ${{ github.token }}
+      CMAKE_GENERATOR: ${{ matrix.cmake_generator }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -166,16 +187,33 @@ jobs:
           git status --short
 
       - name: Check the ABI
+        if: runner.os != 'Windows'
         run: tools/abi/check.sh
 
+      - name: Check the ABI
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: tools/abi/check.ps1
+
       - name: Run the tests
+        if: runner.os != 'Windows'
         run: |
           odin test tests -out:tests.bin
           # Next to the shared library, which it finds through its rpath. odin test deletes it afterwards.
           odin test tests -define:IMGUI_SHARED=true -out:lib/"$PLATFORM"/tests-shared.bin
 
-      # Built only: the runners have no GPU to run it.
+      - name: Run the tests
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          odin test tests -out:tests.exe
+          # Next to the DLL, which Windows finds in the executable's directory. odin test deletes it afterwards.
+          odin test tests -define:IMGUI_SHARED=true -out:lib/$env:PLATFORM/tests-shared.exe
+
+      # Built only: the runners have no GPU to run it. Odin ships wgpu-native for Windows.
       - name: Build the example
+        if: runner.os != 'Windows'
         run: |
           tools/fetch_wgpu_native.sh
           # FLAGS holds several flags.
@@ -185,11 +223,31 @@ jobs:
           odin build examples/glfw_wgpu $FLAGS -define:IMGUI_SHARED=true -out:glfw_wgpu-shared.bin
           ls -l ./*.bin
 
+      - name: Build the example
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          odin build examples/glfw_wgpu -out:glfw_wgpu.exe
+          odin build examples/glfw_wgpu -define:IMGUI_SHARED=true -out:glfw_wgpu-shared.exe
+          Get-ChildItem *.exe
+
       - name: Package the libraries
+        if: runner.os != 'Windows'
         run: |
           # No AppleDouble files from macOS tar.
           COPYFILE_DISABLE=1 tar -czf "dcimgui-$PLATFORM.tar.gz" lib/"$PLATFORM"/libdcimgui.*
           tar -tzvf "dcimgui-$PLATFORM.tar.gz"
+
+      # Windows' tar (bsdtar), with / in the paths.
+      - name: Package the libraries
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $dir = "lib/$env:PLATFORM"
+          tar -czf "dcimgui-$env:PLATFORM.tar.gz" "$dir/dcimgui.lib" "$dir/dcimgui.dll" "$dir/dcimgui.dll.lib"
+          tar -tzvf "dcimgui-$env:PLATFORM.tar.gz"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -235,9 +293,13 @@ jobs:
           path: ${{ runner.temp }}/assets
           merge-multiple: true
 
-      # The JSON has no platform-specific declarations, so both platforms must generate the same bindings.
+      # The JSON has no platform-specific declarations, so all platforms must import the same sources and
+      # generate the same bindings.
       - name: Check that the platforms agree
-        run: diff -r "$RUNNER_TEMP/bindings/bindings-linux-x86_64" "$RUNNER_TEMP/bindings/bindings-macos-arm64"
+        run: |
+          for platform in macos-arm64 windows-x86_64; do
+            diff -r "$RUNNER_TEMP/bindings/bindings-linux-x86_64" "$RUNNER_TEMP/bindings/bindings-$platform"
+          done
 
       - name: Create the release
         run: |
@@ -248,7 +310,7 @@ jobs:
           commit="$(sed -n 's/^IMGUI_COMMIT=//p' "$generated/upstream/version.env")"
           notes="Dear ImGui $IMGUI_TAG (https://github.com/ocornut/imgui/commit/$commit) with its C API from dear_bindings $DEAR_BINDINGS_TAG (https://github.com/dearimgui/dear_bindings/releases/tag/$DEAR_BINDINGS_TAG), configured by imconfig_odin.h.
 
-          Static and shared libraries for Linux x86_64 (built on Ubuntu 22.04) and macOS arm64 (macOS 13+), with no C++ runtime dependency. Download them with \`tools/fetch_imgui_libs.sh\`.
+          Static and shared libraries for Linux x86_64 (built on Ubuntu 22.04), macOS arm64 (macOS 13+) and Windows x86_64 (Visual Studio 2026, static C runtime), with no C++ runtime dependency. Download them with \`tools/fetch_imgui_libs.sh\` (\`tools/fetch_imgui_libs.ps1\` on Windows).
 
           Built by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
@@ -294,7 +356,7 @@ jobs:
           fi
           body="Updates Dear ImGui to $IMGUI_TAG and its C API to dear_bindings $DEAR_BINDINGS_TAG, regenerates the bindings, and pins the release [$TAG]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG).
 
-          Generated by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID, which checked the ABI, ran the tests and built the example against the libraries on Linux and macOS.
+          Generated by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID, which checked the ABI, ran the tests and built the example against the libraries on Linux, macOS and Windows.
 
           Pull requests opened by GitHub Actions do not trigger CI: close and reopen this one to run it."
           gh pr create --repo "$GITHUB_REPOSITORY" --base "$GITHUB_REF_NAME" --head "$branch" \

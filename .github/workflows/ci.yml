@@ -1,6 +1,6 @@
-# Checks the generator and the generated files, builds Dear ImGui from upstream/ on Linux and macOS, runs
-# the ABI check and the headless tests against it, and builds the example (not run: the runners have no
-# GPU). Also type-checks everything for the other platform, and lints the scripts.
+# Checks the generator and the generated files, builds Dear ImGui from upstream/ on Linux, macOS and
+# Windows, runs the ABI check and the headless tests against it, and builds the example (not run: the
+# runners have no GPU). Also type-checks everything for every platform, and lints the scripts.
 name: CI
 
 on:
@@ -39,18 +39,21 @@ jobs:
       # stand in for them.
       - name: Create placeholder libraries
         run: |
-          mkdir -p lib/linux-x86_64 lib/macos-arm64
+          mkdir -p lib/linux-x86_64 lib/macos-arm64 lib/windows-x86_64
           touch lib/linux-x86_64/libdcimgui.a lib/linux-x86_64/libdcimgui.so
           touch lib/macos-arm64/libdcimgui.a lib/macos-arm64/libdcimgui.dylib
+          touch lib/windows-x86_64/dcimgui.lib lib/windows-x86_64/dcimgui.dll.lib
           vendor_lib="$(odin root)/vendor/wgpu/lib"
           for dir in wgpu-linux-x86_64-release wgpu-macos-aarch64-release; do
             mkdir -p "$vendor_lib/$dir/lib"
             touch "$vendor_lib/$dir/lib/libwgpu_native.a"
           done
+          mkdir -p "$vendor_lib/wgpu-windows-x86_64-msvc-release/lib"
+          touch "$vendor_lib/wgpu-windows-x86_64-msvc-release/lib/wgpu_native.lib"
 
       - name: Type-check the packages, the tests and the example
         run: |
-          for target in linux_amd64 darwin_arm64; do
+          for target in linux_amd64 darwin_arm64 windows_amd64; do
             echo "::group::$target"
             odin check imgui -no-entry-point -target:$target
             odin check imgui -no-entry-point -target:$target -define:IMGUI_SHARED=true
@@ -63,6 +66,17 @@ jobs:
 
       - name: Check the scripts
         run: shellcheck --severity=warning tools/*.sh tools/abi/*.sh
+
+      # Write-Host is allowed: the scripts print progress for people, apart from their output.
+      - name: Check the PowerShell scripts
+        shell: pwsh
+        run: |
+          if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) {
+            Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          }
+          $issues = Invoke-ScriptAnalyzer -Path tools -Recurse -Severity Warning, Error -ExcludeRule PSAvoidUsingWriteHost
+          $issues | Format-Table ScriptName, Line, RuleName, Message -AutoSize -Wrap | Out-String -Width 200
+          if ($issues) { exit 1 }
 
   build:
     strategy:
@@ -103,3 +117,42 @@ jobs:
           odin build examples/glfw_wgpu -out:glfw_wgpu.bin
           odin build examples/glfw_wgpu -define:IMGUI_SHARED=true -out:glfw_wgpu-shared.bin
           ls -l ./*.bin
+
+  # Visual Studio 2026, which CMake finds itself (CMakeLists.txt). Odin ships GLFW and wgpu-native for
+  # Windows.
+  build-windows:
+    name: build (windows-2025-vs2026)
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      # Fails without Visual Studio 2026, rather than building with another version.
+      CMAKE_GENERATOR: Visual Studio 18 2026
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-odin
+
+      - name: Build Dear ImGui
+        run: tools/build_imgui.ps1
+
+      - name: Check the ABI
+        run: tools/abi/check.ps1
+
+      - name: Run the tests
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          odin test tests -out:tests.exe
+          # Next to the DLL, which Windows finds in the executable's directory.
+          odin test tests -define:IMGUI_SHARED=true -out:lib/windows-x86_64/tests-shared.exe
+
+      - name: Build the example
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          odin build examples/glfw_wgpu -out:glfw_wgpu.exe
+          odin build examples/glfw_wgpu -define:IMGUI_SHARED=true -out:glfw_wgpu-shared.exe
+          Get-ChildItem *.exe
