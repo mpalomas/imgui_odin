@@ -83,6 +83,8 @@ main :: proc() {
 	defer im.DestroyContext()
 	io := im.GetIO()
 	io.ConfigFlags += {.NavEnableKeyboard, .NavEnableGamepad, .DockingEnable}
+	// The default bitmap font is only crisp at 13px: at a fractional scale, use the embedded vector font.
+	im.FontAtlas_AddFontDefaultVector(io.Fonts)
 
 	style := im.GetStyle()
 	im.StyleColorsDark()
