@@ -18,15 +18,11 @@ Each script in `tools/` is a bash script (`.sh`) for Linux and macOS, with a Pow
 | Path | |
 |---|---|
 | `imgui/` | Package `imgui`: `imgui_generated.odin` (generated), `imgui.odin` (library selection, helpers). |
-| `imgui/imgui_impl_glfw/` | The GLFW platform backend, on `vendor:glfw`. |
-| `imgui/imgui_impl_wgpu/` | The WebGPU renderer backend, on `vendor:wgpu`. |
 | `upstream/imgui/` | The Dear ImGui sources the library is built from (no backends). |
 | `upstream/dear_bindings/` | The dear_bindings files: the C API (`.h`, `.cpp`) and its description (`.json`). |
 | `upstream/imconfig_odin.h` | The Dear ImGui configuration of the library and the bindings. |
 | `upstream/version.env` | The dear_bindings release and Dear ImGui commit in `upstream/`. |
 | `upstream/release.env` | The release whose libraries match the bindings. |
-| `lib/<os>-<arch>/` | `libdcimgui.a` and `.dylib`/`.so`; on Windows `dcimgui.lib`, and `dcimgui.dll` with its import library `dcimgui.dll.lib`. From `fetch_imgui_libs` or `build_imgui`. Not committed. |
-| `CMakeLists.txt` | The Windows build of the library (MSVC), run by `build_imgui.ps1`. |
 | `tools/gen/` | The generator, `dcimgui.json` → Odin, with its tests. |
 | `tools/abi/` | The ABI check (generated programs, `check.sh` and `check.ps1`). |
 | `tools/update_imgui.{sh,ps1}` | Imports a dear_bindings release and its Dear ImGui sources, regenerates the bindings. |
@@ -178,18 +174,6 @@ tag the release names, checks that they are the same Dear ImGui version, replace
 regenerates the bindings, builds the library and runs the ABI check. Commit `upstream/`,
 `imgui/imgui_generated.odin` and `tools/abi/`; `upstream/release.env` no longer matches until a release
 is built for them. The `build-imgui.yml` workflow does all of this and the release.
-
-## GitHub Actions
-
-| Workflow | Runs | Does |
-|---|---|---|
-| `ci.yml` | On pushes to `master` and pull requests | Tests the generator and checks that the generated files are up to date, type-checks everything for Linux, macOS and Windows, lints the bash and PowerShell scripts. On Linux, macOS and Windows: builds the library, runs the ABI check and the tests, builds the example. |
-| `build-imgui.yml` | By hand (Actions > Build Dear ImGui > Run workflow), with a dear_bindings release tag (empty for the latest) | Builds the library static and shared on Linux (Ubuntu 22.04), macOS and Windows (Visual Studio 2026), regenerates the bindings, runs the ABI check and the tests against the libraries, builds the example. With `publish`: creates the release `imgui-<imgui tag>-db<dear_bindings version>`, and opens a pull request that commits the sources, the bindings and `upstream/release.env`. |
-| `update-imgui.yml` | Mondays, or by hand | Runs `build-imgui.yml` when dear_bindings has a newer docking release than the pinned one, unless its release exists already. |
-
-The release holds the libraries; the pull request commits the matching bindings, so merging it is what
-updates the repo. One-time setup: enable Settings > Actions > General > "Allow GitHub Actions to create and
-approve pull requests". Pull requests opened by Actions don't trigger CI: close and reopen them to run it.
 
 ## Tests
 

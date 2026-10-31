@@ -1,3 +1,6 @@
 # LF everywhere, also on Windows, where Git converts to CRLF by default: tools/gen compares the generated
 # files byte for byte, and bash runs the .sh scripts.
 * text=auto eol=lf
+
+# Exclude vendored upstream C/C++ sources from GitHub language stats.
+upstream/** linguist-vendored
