@@ -218,9 +218,9 @@ jobs:
           tools/fetch_wgpu_native.sh
           # FLAGS holds several flags.
           # shellcheck disable=SC2086
-          odin build examples/glfw_wgpu $FLAGS -out:glfw_wgpu.bin
+          odin build examples/glfw_wgpu $FLAGS -collection:gpu="$(odin root)/vendor" -out:glfw_wgpu.bin
           # shellcheck disable=SC2086
-          odin build examples/glfw_wgpu $FLAGS -define:IMGUI_SHARED=true -out:glfw_wgpu-shared.bin
+          odin build examples/glfw_wgpu $FLAGS -collection:gpu="$(odin root)/vendor" -define:IMGUI_SHARED=true -out:glfw_wgpu-shared.bin
           ls -l ./*.bin
 
       - name: Build the example
@@ -228,8 +228,8 @@ jobs:
         shell: pwsh
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
-          odin build examples/glfw_wgpu -out:glfw_wgpu.exe
-          odin build examples/glfw_wgpu -define:IMGUI_SHARED=true -out:glfw_wgpu-shared.exe
+          odin build examples/glfw_wgpu -collection:gpu="$(odin root)/vendor" -out:glfw_wgpu.exe
+          odin build examples/glfw_wgpu -collection:gpu="$(odin root)/vendor" -define:IMGUI_SHARED=true -out:glfw_wgpu-shared.exe
           Get-ChildItem *.exe
 
       - name: Package the libraries

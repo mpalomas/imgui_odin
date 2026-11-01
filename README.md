@@ -65,9 +65,15 @@ tools/fetch_imgui_libs.ps1           # the same, in PowerShell
 ## Example
 
 ```sh
-odin run examples/glfw_wgpu                                              # macOS, Windows
-tools/fetch_wgpu_native.sh && odin run examples/glfw_wgpu               # Linux, needs libglfw3
+odin run examples/glfw_wgpu -collection:gpu="$(odin root)/vendor"                             # macOS, Windows
+tools/fetch_wgpu_native.sh && odin run examples/glfw_wgpu -collection:gpu="$(odin root)/vendor"  # Linux, needs libglfw3
+odin run examples/glfw_wgpu -collection:gpu=/path/to/dawn_webgpu_odin                         # Dawn
 ```
+
+The WebGPU backend and the example import `gpu:wgpu`, and the `gpu` collection picks the bindings:
+`$(odin root)/vendor` for Odin's `vendor:wgpu` (wgpu-native), or a checkout of
+[dawn_webgpu_odin](https://github.com/mpalomas/dawn_webgpu_odin) for Dawn. Both have the same API, so a
+program that already uses one of them shares its `wgpu` types with the backend.
 
 `vendor:wgpu` needs wgpu-native in `$(odin root)/vendor/wgpu/lib/`: Odin ships it for macOS arm64 and
 Windows x86_64, and `fetch_wgpu_native.sh` downloads it for Linux. Esc quits, `--seconds=N` closes the
@@ -76,8 +82,10 @@ window after N seconds.
 ## Using the bindings
 
 ```sh
-odin build . -collection:imgui=/path/to/imgui_odin
+odin build . -collection:imgui=/path/to/imgui_odin -collection:gpu="$(odin root)/vendor"   # or gpu=<dawn_webgpu_odin>
 ```
+
+The `gpu` collection is needed only with `imgui_impl_wgpu`.
 
 ```odin
 import im "imgui:imgui"
@@ -160,7 +168,7 @@ procedures (`InitForOther`, `NewFrame`, `RenderDrawData`, `UpdateTexture`, `GetR
   hook). Not yet: multi-viewports (`ConfigFlags.ViewportsEnable`), which the C++ WebGPU backend does
   not support either; docking works inside the main window.
 - `imgui_impl_wgpu`: dynamic font atlas and user textures, large meshes, the standard draw callbacks
-  (`PlatformIO.DrawCallback_*`). Uses only the API common to `vendor:wgpu` and `dawn_webgpu_odin`.
+  (`PlatformIO.DrawCallback_*`). Imports `gpu:wgpu`, and uses only the API common to `vendor:wgpu` and `dawn_webgpu_odin`.
 
 ## Updating Dear ImGui
 

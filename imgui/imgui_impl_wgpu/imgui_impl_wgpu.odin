@@ -1,4 +1,4 @@
-// Dear ImGui renderer backend for WebGPU, on vendor:wgpu (wgpu-native). An Odin port of
+// Dear ImGui renderer backend for WebGPU, on package wgpu of the gpu collection. An Odin port of
 // backends/imgui_impl_wgpu.cpp of Dear ImGui 1.93.0 (docking), to use with a platform backend such as
 // imgui_impl_glfw.
 //
@@ -7,7 +7,9 @@
 // standard draw callbacks of PlatformIO, and the render state for draw callbacks (GetRenderState).
 // Not implemented: multi-viewports, as in the C++ backend.
 //
-// The code only uses the API common to vendor:wgpu and dawn_webgpu_odin, so it builds against either.
+// It imports gpu:wgpu, and the gpu collection picks the bindings: -collection:gpu=$(odin root)/vendor for
+// wgpu-native (vendor:wgpu), or -collection:gpu=<path to dawn_webgpu_odin> for Dawn. The code only uses
+// the API common to both.
 //
 //	imgui_impl_wgpu.Init({device = device, render_target_format = surface_format})
 //	// Each frame, before im.NewFrame():
@@ -21,7 +23,7 @@ package imgui_impl_wgpu
 import "base:runtime"
 import "core:c"
 import "core:mem"
-import "vendor:wgpu"
+import "gpu:wgpu"
 import im ".."
 
 InitInfo :: struct {

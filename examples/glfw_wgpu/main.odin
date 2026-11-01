@@ -1,7 +1,8 @@
 // Dear ImGui with the Odin GLFW and WebGPU backends: a port of Dear ImGui's example_glfw_wgpu, with
 // docking, the demo window, and a window written in Odin (plots, a custom drawing, a user texture).
 //
-//	odin run examples/glfw_wgpu
+//	odin run examples/glfw_wgpu -collection:gpu=$(odin root)/vendor            // wgpu-native
+//	odin run examples/glfw_wgpu -collection:gpu=<path to dawn_webgpu_odin>     // Dawn
 //
 // Esc or closing the window quits. `--seconds=N` closes it after N seconds.
 package main
@@ -13,8 +14,8 @@ import "core:os"
 import "core:strconv"
 import "core:strings"
 import "vendor:glfw"
-import "vendor:wgpu"
-import glue "vendor:wgpu/glfwglue"
+import "gpu:wgpu"
+import glue "gpu:wgpu/glfwglue"
 import im "../../imgui"
 import "../../imgui/imgui_impl_glfw"
 import "../../imgui/imgui_impl_wgpu"
@@ -184,8 +185,19 @@ main :: proc() {
 		wgpu.TextureRelease(surface_texture.texture)
 		free_all(context.temp_allocator)
 	}
-	// The GPU may still use the resources released by the deferred calls.
-	wgpu.DevicePoll(gpu.device, true)
+	// The GPU may still use the resources released by the deferred calls. DevicePoll would wait, but
+	// only wgpu-native has it: wait for the queue through the API common to wgpu-native and Dawn.
+	work_done := false
+	wgpu.QueueOnSubmittedWorkDone(gpu.queue, {
+		mode      = .AllowProcessEvents,
+		userdata1 = &work_done,
+		callback  = proc "c" (status: wgpu.QueueWorkDoneStatus, message: wgpu.StringView, userdata1, userdata2: rawptr) {
+			(^bool)(userdata1)^ = true
+		},
+	})
+	for !work_done {
+		wgpu.InstanceProcessEvents(gpu.instance)
+	}
 }
 
 draw_ui :: proc(state: ^State, io: ^im.IO) {

@@ -58,9 +58,9 @@ jobs:
             odin check imgui -no-entry-point -target:$target
             odin check imgui -no-entry-point -target:$target -define:IMGUI_SHARED=true
             odin check imgui/imgui_impl_glfw -no-entry-point -target:$target
-            odin check imgui/imgui_impl_wgpu -no-entry-point -target:$target
+            odin check imgui/imgui_impl_wgpu -no-entry-point -target:$target -collection:gpu="$(odin root)/vendor"
             odin check tests -no-entry-point -target:$target
-            odin check examples/glfw_wgpu -target:$target
+            odin check examples/glfw_wgpu -target:$target -collection:gpu="$(odin root)/vendor"
             echo "::endgroup::"
           done
 
@@ -114,8 +114,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tools/fetch_wgpu_native.sh
-          odin build examples/glfw_wgpu -out:glfw_wgpu.bin
-          odin build examples/glfw_wgpu -define:IMGUI_SHARED=true -out:glfw_wgpu-shared.bin
+          odin build examples/glfw_wgpu -collection:gpu="$(odin root)/vendor" -out:glfw_wgpu.bin
+          odin build examples/glfw_wgpu -collection:gpu="$(odin root)/vendor" -define:IMGUI_SHARED=true -out:glfw_wgpu-shared.bin
           ls -l ./*.bin
 
   # Visual Studio 2026, which CMake finds itself (CMakeLists.txt). Odin ships GLFW and wgpu-native for
@@ -153,6 +153,6 @@ jobs:
       - name: Build the example
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
-          odin build examples/glfw_wgpu -out:glfw_wgpu.exe
-          odin build examples/glfw_wgpu -define:IMGUI_SHARED=true -out:glfw_wgpu-shared.exe
+          odin build examples/glfw_wgpu -collection:gpu="$(odin root)/vendor" -out:glfw_wgpu.exe
+          odin build examples/glfw_wgpu -collection:gpu="$(odin root)/vendor" -define:IMGUI_SHARED=true -out:glfw_wgpu-shared.exe
           Get-ChildItem *.exe
