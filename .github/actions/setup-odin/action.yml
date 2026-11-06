@@ -2,13 +2,13 @@ name: Set up Odin
 description: Downloads an Odin nightly build or release and adds it to the PATH.
 
 inputs:
-  # Odin only runs the generator and builds the examples here, so a nightly cannot break the published
-  # libraries. The nightly list (https://odin-lang.org/docs/nightly/) only keeps the last few days, so a
-  # given nightly cannot be pinned: use a release tag for that. Not dev-2026-10, whose compiler crashes on
-  # macOS on any use of Objective-C ("missing procedure 'objc_lookUpClass'").
+  # Pinned to a release: the nightly list (https://odin-lang.org/docs/nightly/) only keeps the last few
+  # days, so a given nightly cannot be pinned. Bump it with the Odin release we develop against. Not
+  # dev-2026-10, whose compiler crashes on macOS on any use of Objective-C ("missing procedure
+  # 'objc_lookUpClass'").
   version:
-    description: nightly (the latest nightly build), or a release tag (https://github.com/odin-lang/Odin/releases)
-    default: nightly
+    description: a release tag (https://github.com/odin-lang/Odin/releases), or nightly (the latest nightly build)
+    default: dev-2026-11a
 
 runs:
   using: composite
