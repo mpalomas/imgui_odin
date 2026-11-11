@@ -104,9 +104,8 @@ jobs:
       # vendor:glfw links the system GLFW on Linux, and ships it for macOS.
       - name: Install GLFW
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libglfw3-dev
+        timeout-minutes: 5
+        run: tools/ci_apt_install.sh libglfw3-dev
 
       - name: Build Dear ImGui
         run: tools/build_imgui.sh
