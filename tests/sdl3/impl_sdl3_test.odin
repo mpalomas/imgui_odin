@@ -118,7 +118,9 @@ test_events :: proc(t: ^testing.T) {
 	push({key = {type = .KEY_DOWN, windowID = id, scancode = .Q, key = sdl.K_A, mod = sdl.KMOD_CTRL, down = true}})
 	frame()
 	testing.expect(t, im.IsKeyDown(.Keypad7) && !im.IsKeyDown(.Home))
-	testing.expect(t, im.IsKeyDown(.A) && io.KeyCtrl)
+	testing.expect(t, im.IsKeyDown(.A))
+	// Dear ImGui swaps Ctrl and Cmd itself on macOS (io.ConfigMacOSXBehaviors).
+	testing.expect(t, io.KeySuper if ODIN_OS == .Darwin else io.KeyCtrl)
 	testing.expect_value(t, imgui_impl_sdl3.KeyEventToImGuiKey(sdl.K_SEMICOLON, .COMMA), im.Key.Semicolon)
 	testing.expect_value(t, imgui_impl_sdl3.KeyEventToImGuiKey(sdl.Keycode(0x3c), .NONUSBACKSLASH), im.Key.Oem102)
 	testing.expect_value(t, imgui_impl_sdl3.KeyEventToImGuiKey(sdl.K_F17, .F17), im.Key.F17)
