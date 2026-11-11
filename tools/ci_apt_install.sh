@@ -22,7 +22,9 @@ echo "Installing: ${missing[*]}"
 # with DNS over HTTPS at 1.1.1.1 (an address: no DNS needed to reach it) and pin it in /etc/hosts. Only on GitHub's runners:
 # a developer's machine keeps its /etc/hosts.
 if [ "${GITHUB_ACTIONS:-}" = true ]; then
-	hosts=$(cat /etc/apt/apt-mirrors.txt /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null \
+	# The hosts apt uses: the mirror list, and the URIs: and deb lines of the sources (not their comments).
+	hosts=$({ grep -hvE '^[[:space:]]*(#|$)' /etc/apt/apt-mirrors.txt 2>/dev/null
+		grep -hE '^[[:space:]]*(URIs:|deb(-src)?[[:space:]])' /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null; } \
 		| grep -oE '(https?://)?[a-z0-9.-]+\.ubuntu\.com' | sed -E 's|^https?://||' | sort -u || true)
 	for host in $hosts; do
 		if getent hosts "$host" >/dev/null; then
