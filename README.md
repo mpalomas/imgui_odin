@@ -1,7 +1,7 @@
 # imgui_odin
 
 Odin bindings for [Dear ImGui](https://github.com/ocornut/imgui) (docking branch), through the C API of
-[dear_bindings](https://github.com/dearimgui/dear_bindings), with the GLFW and WebGPU backends written in
+[dear_bindings](https://github.com/dearimgui/dear_bindings), with the GLFW, SDL 3 and WebGPU backends written in
 Odin. Supported: Linux x86_64, macOS arm64 and Windows x86_64.
 
 Currently Dear ImGui 1.93.0 (docking), dear_bindings 0.26 (`upstream/version.env`).
@@ -30,8 +30,9 @@ Each script in `tools/` is a bash script (`.sh`) for Linux and macOS, with a Pow
 | `tools/fetch_imgui_libs.{sh,ps1}` | Downloads the prebuilt libraries matching the bindings. |
 | `tools/latest_dear_bindings.{sh,ps1}` | Prints the latest docking release of dear_bindings. |
 | `tools/fetch_wgpu_native.sh` | Downloads the wgpu-native libraries `vendor:wgpu` links on Linux, for the example. |
-| `tests/` | Runtime tests, headless. |
+| `tests/` | Runtime tests, headless; `tests/sdl3/` runs `imgui_impl_sdl3` on SDL's dummy video driver. |
 | `examples/glfw_wgpu/` | GLFW + WebGPU, with docking and the demo window. |
+| `examples/sdl3_wgpu/` | The same with SDL 3. |
 | `.github/` | CI, and the workflows that build and publish the library ([GitHub Actions](#github-actions)). |
 
 ## Setup
@@ -68,6 +69,7 @@ tools/fetch_imgui_libs.ps1           # the same, in PowerShell
 odin run examples/glfw_wgpu -collection:gpu="$(odin root)/vendor"                             # macOS, Windows
 tools/fetch_wgpu_native.sh && odin run examples/glfw_wgpu -collection:gpu="$(odin root)/vendor"  # Linux, needs libglfw3
 odin run examples/glfw_wgpu -collection:gpu=/path/to/dawn_webgpu_odin                         # Dawn
+odin run examples/sdl3_wgpu -collection:gpu="$(odin root)/vendor" -collection:sdl3=/path/to/sdl3_odin  # SDL 3
 ```
 
 The WebGPU backend and the example import `gpu:wgpu`, and the `gpu` collection picks the bindings:
@@ -85,7 +87,9 @@ window after N seconds.
 odin build . -collection:imgui=/path/to/imgui_odin -collection:gpu="$(odin root)/vendor"   # or gpu=<dawn_webgpu_odin>
 ```
 
-The `gpu` collection is needed only with `imgui_impl_wgpu`.
+The `gpu` collection is needed only with `imgui_impl_wgpu`, and the `sdl3` collection only with `imgui_impl_sdl3`: a
+checkout of [sdl3_odin](https://github.com/mpalomas/sdl3_odin), whose `tools/fetch_sdl3_libs.sh` downloads its libraries.
+With SDL, give each SDL event to `imgui_impl_sdl3.ProcessEvent(&event)` before `NewFrame`.
 
 ```odin
 import im "imgui:imgui"
@@ -159,7 +163,7 @@ and publish a new release revision (see `build-imgui.yml`).
 
 ## Backends
 
-The backends are ports of Dear ImGui's `imgui_impl_glfw.cpp` and `imgui_impl_wgpu.cpp`, with the same
+The backends are ports of Dear ImGui's `imgui_impl_glfw.cpp`, `imgui_impl_sdl3.cpp` and `imgui_impl_wgpu.cpp`, with the same
 procedures (`InitForOther`, `NewFrame`, `RenderDrawData`, `UpdateTexture`, `GetRenderState`...).
 
 - `imgui_impl_glfw`: keyboard (with the translation of GLFW's untranslated keys), mouse, gamepad
@@ -167,6 +171,9 @@ procedures (`InitForOther`, `NewFrame`, `RenderDrawData`, `UpdateTexture`, `GetR
   callbacks, and on Windows touch screen and pen input (as the C++ backend, through a window procedure
   hook). Not yet: multi-viewports (`ConfigFlags.ViewportsEnable`), which the C++ WebGPU backend does
   not support either; docking works inside the main window.
+- `imgui_impl_sdl3`: keyboard (the keypad and OEM keys by scancode, as the C++ backend), mouse and touch screens
+  as a mouse source, gamepads (the first, all, or the ones you pass, `SetGamepadMode`), cursors, clipboard, IME
+  (text input area), opening URLs, mouse capture modes. Imports `sdl3:sdl3`. Not yet: multi-viewports.
 - `imgui_impl_wgpu`: dynamic font atlas and user textures, large meshes, the standard draw callbacks
   (`PlatformIO.DrawCallback_*`). Imports `gpu:wgpu`, and uses only the API common to `vendor:wgpu` and `dawn_webgpu_odin`.
 

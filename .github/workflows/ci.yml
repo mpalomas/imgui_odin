@@ -50,6 +50,11 @@ jobs:
           done
           mkdir -p "$vendor_lib/wgpu-windows-x86_64-msvc-release/lib"
           touch "$vendor_lib/wgpu-windows-x86_64-msvc-release/lib/wgpu_native.lib"
+          # The SDL bindings for imgui_impl_sdl3, with placeholders for their libraries too.
+          git clone --depth 1 https://github.com/mpalomas/sdl3_odin deps/sdl3_odin
+          mkdir -p deps/sdl3_odin/lib/linux-x86_64 deps/sdl3_odin/lib/macos-arm64 deps/sdl3_odin/lib/windows-x86_64
+          touch deps/sdl3_odin/lib/linux-x86_64/libSDL3.a deps/sdl3_odin/lib/macos-arm64/libSDL3.a
+          touch deps/sdl3_odin/lib/windows-x86_64/SDL3.lib
 
       - name: Type-check the packages, the tests and the example
         run: |
@@ -58,9 +63,12 @@ jobs:
             odin check imgui -no-entry-point -target:$target
             odin check imgui -no-entry-point -target:$target -define:IMGUI_SHARED=true
             odin check imgui/imgui_impl_glfw -no-entry-point -target:$target
+            odin check imgui/imgui_impl_sdl3 -no-entry-point -target:$target -collection:sdl3=deps/sdl3_odin
             odin check imgui/imgui_impl_wgpu -no-entry-point -target:$target -collection:gpu="$(odin root)/vendor"
             odin check tests -no-entry-point -target:$target
+            odin check tests/sdl3 -no-entry-point -target:$target -collection:sdl3=deps/sdl3_odin
             odin check examples/glfw_wgpu -target:$target -collection:gpu="$(odin root)/vendor"
+            odin check examples/sdl3_wgpu -target:$target -collection:gpu="$(odin root)/vendor" -collection:sdl3=deps/sdl3_odin
             echo "::endgroup::"
           done
 
@@ -109,13 +117,23 @@ jobs:
       - name: Run the tests
         run: odin test tests -out:tests.bin
 
-      - name: Build the example
+      # imgui_impl_sdl3 on SDL's dummy video driver, with the libraries of sdl3_odin's release.
+      - name: Run the SDL tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git clone --depth 1 https://github.com/mpalomas/sdl3_odin deps/sdl3_odin
+          deps/sdl3_odin/tools/fetch_sdl3_libs.sh
+          odin test tests/sdl3 -collection:sdl3=deps/sdl3_odin -out:tests-sdl3.bin
+
+      - name: Build the examples
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           tools/fetch_wgpu_native.sh
           odin build examples/glfw_wgpu -collection:gpu="$(odin root)/vendor" -out:glfw_wgpu.bin
           odin build examples/glfw_wgpu -collection:gpu="$(odin root)/vendor" -define:IMGUI_SHARED=true -out:glfw_wgpu-shared.bin
+          odin build examples/sdl3_wgpu -collection:gpu="$(odin root)/vendor" -collection:sdl3=deps/sdl3_odin -out:sdl3_wgpu.bin
           ls -l ./*.bin
 
   # Visual Studio 2026, which CMake finds itself (CMakeLists.txt). Odin ships GLFW and wgpu-native for
@@ -150,9 +168,20 @@ jobs:
           # Next to the DLL, which Windows finds in the executable's directory.
           odin test tests -define:IMGUI_SHARED=true -out:lib/windows-x86_64/tests-shared.exe
 
-      - name: Build the example
+      # imgui_impl_sdl3 on SDL's dummy video driver, with the libraries of sdl3_odin's release.
+      - name: Run the SDL tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          git clone --depth 1 https://github.com/mpalomas/sdl3_odin deps/sdl3_odin
+          deps/sdl3_odin/tools/fetch_sdl3_libs.ps1
+          odin test tests/sdl3 -collection:sdl3=deps/sdl3_odin -out:tests-sdl3.exe
+
+      - name: Build the examples
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
           odin build examples/glfw_wgpu -collection:gpu="$(odin root)/vendor" -out:glfw_wgpu.exe
           odin build examples/glfw_wgpu -collection:gpu="$(odin root)/vendor" -define:IMGUI_SHARED=true -out:glfw_wgpu-shared.exe
+          odin build examples/sdl3_wgpu -collection:gpu="$(odin root)/vendor" -collection:sdl3=deps/sdl3_odin -out:sdl3_wgpu.exe
           Get-ChildItem *.exe

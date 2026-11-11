@@ -5,6 +5,7 @@ lib/**/*.dylib
 lib/**/*.lib
 lib/**/*.dll
 /build/
+/deps/
 *.bin
 *.exe
 *.pdb
