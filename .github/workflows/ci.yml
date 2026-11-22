@@ -67,6 +67,12 @@ jobs:
             odin check imgui/imgui_impl_wgpu -no-entry-point -target:$target -collection:gpu="$(odin root)/vendor"
             odin check tests -no-entry-point -target:$target
             odin check tests/sdl3 -no-entry-point -target:$target -collection:sdl3=deps/sdl3_odin
+            # The SDL backends on Odin's vendor:sdl3 too, and the SDL_Renderer backend, which needs an SDL with its renderer.
+            odin check imgui/imgui_impl_sdl3 -no-entry-point -target:$target -collection:sdl3="$(odin root)/vendor"
+            odin check imgui/imgui_impl_sdlrenderer3 -no-entry-point -target:$target -collection:sdl3="$(odin root)/vendor"
+            odin check imgui/imgui_impl_sdlrenderer3 -no-entry-point -target:$target -collection:sdl3=deps/sdl3_odin
+            odin check tests/sdl3 -no-entry-point -target:$target -collection:sdl3="$(odin root)/vendor"
+            odin check tests/sdlrenderer3 -no-entry-point -target:$target -collection:sdl3="$(odin root)/vendor"
             odin check examples/glfw_wgpu -target:$target -collection:gpu="$(odin root)/vendor"
             odin check examples/sdl3_wgpu -target:$target -collection:gpu="$(odin root)/vendor" -collection:sdl3=deps/sdl3_odin
             echo "::endgroup::"
@@ -125,6 +131,15 @@ jobs:
           deps/sdl3_odin/tools/fetch_sdl3_libs.sh
           odin test tests/sdl3 -collection:sdl3=deps/sdl3_odin -out:tests-sdl3.bin
 
+      # Both SDL backends on Odin's vendor:sdl3, which links the system SDL (Homebrew's): the SDL_Renderer backend
+      # on the offscreen video driver and the software renderer. (Ubuntu 24.04 has no SDL 3 package.)
+      - name: Run the SDL tests on vendor:sdl3
+        if: runner.os == 'macOS'
+        run: |
+          brew install sdl3
+          odin test tests/sdl3 -collection:sdl3="$(odin root)/vendor" -out:tests-sdl3-vendor.bin
+          odin test tests/sdlrenderer3 -collection:sdl3="$(odin root)/vendor" -out:tests-sdlrenderer3.bin
+
       - name: Build the examples
         env:
           GH_TOKEN: ${{ github.token }}
@@ -176,6 +191,15 @@ jobs:
           git clone --depth 1 https://github.com/mpalomas/sdl3_odin deps/sdl3_odin
           deps/sdl3_odin/tools/fetch_sdl3_libs.ps1
           odin test tests/sdl3 -collection:sdl3=deps/sdl3_odin -out:tests-sdl3.exe
+
+      # Both SDL backends on Odin's vendor:sdl3, which ships SDL3.dll for Windows: the SDL_Renderer backend on the
+      # offscreen video driver and the software renderer.
+      - name: Run the SDL tests on vendor:sdl3
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          Copy-Item "$(odin root)/vendor/sdl3/SDL3.dll" .
+          odin test tests/sdl3 -collection:sdl3="$(odin root)/vendor" -out:tests-sdl3-vendor.exe
+          odin test tests/sdlrenderer3 -collection:sdl3="$(odin root)/vendor" -out:tests-sdlrenderer3.exe
 
       - name: Build the examples
         run: |

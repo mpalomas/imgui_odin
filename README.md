@@ -1,8 +1,8 @@
 # imgui_odin
 
 Odin bindings for [Dear ImGui](https://github.com/ocornut/imgui) (docking branch), through the C API of
-[dear_bindings](https://github.com/dearimgui/dear_bindings), with the GLFW, SDL 3 and WebGPU backends written in
-Odin. Supported: Linux x86_64, macOS arm64 and Windows x86_64.
+[dear_bindings](https://github.com/dearimgui/dear_bindings), with the GLFW, SDL 3, SDL_Renderer and WebGPU backends
+written in Odin. Supported: Linux x86_64, macOS arm64 and Windows x86_64.
 
 Currently Dear ImGui 1.93.0 (docking), dear_bindings 0.26 (`upstream/version.env`).
 
@@ -30,7 +30,7 @@ Each script in `tools/` is a bash script (`.sh`) for Linux and macOS, with a Pow
 | `tools/fetch_imgui_libs.{sh,ps1}` | Downloads the prebuilt libraries matching the bindings. |
 | `tools/latest_dear_bindings.{sh,ps1}` | Prints the latest docking release of dear_bindings. |
 | `tools/fetch_wgpu_native.sh` | Downloads the wgpu-native libraries `vendor:wgpu` links on Linux, for the example. |
-| `tests/` | Runtime tests, headless; `tests/sdl3/` runs `imgui_impl_sdl3` on SDL's dummy video driver. |
+| `tests/` | Runtime tests, headless; `tests/sdl3/` runs `imgui_impl_sdl3` on SDL's dummy video driver, `tests/sdlrenderer3/` both SDL backends on its offscreen driver and software renderer. |
 | `examples/glfw_wgpu/` | GLFW + WebGPU, with docking and the demo window. |
 | `examples/sdl3_wgpu/` | The same with SDL 3. |
 | `.github/` | CI, and the workflows that build and publish the library ([GitHub Actions](#github-actions)). |
@@ -87,9 +87,14 @@ window after N seconds.
 odin build . -collection:imgui=/path/to/imgui_odin -collection:gpu="$(odin root)/vendor"   # or gpu=<dawn_webgpu_odin>
 ```
 
-The `gpu` collection is needed only with `imgui_impl_wgpu`, and the `sdl3` collection only with `imgui_impl_sdl3`: a
-checkout of [sdl3_odin](https://github.com/mpalomas/sdl3_odin), whose `tools/fetch_sdl3_libs.sh` downloads its libraries.
-With SDL, give each SDL event to `imgui_impl_sdl3.ProcessEvent(&event)` before `NewFrame`.
+The `gpu` collection is needed only with `imgui_impl_wgpu`, and the `sdl3` collection only with `imgui_impl_sdl3` and
+`imgui_impl_sdlrenderer3`: a checkout of [sdl3_odin](https://github.com/mpalomas/sdl3_odin), whose
+`tools/fetch_sdl3_libs.sh` downloads its libraries, or `$(odin root)/vendor` for Odin's own `vendor:sdl3`. Both have the
+same API for what the backends use, and a program that already imports `vendor:sdl3` shares its `sdl` types with them.
+`imgui_impl_sdlrenderer3` draws with SDL's 2D renderer (`SDL_Renderer`), which the lean library of sdl3_odin leaves out:
+use it with an SDL that has the renderer, such as `vendor:sdl3` (Odin ships SDL for Windows; Linux and macOS link the
+system's, e.g. `libsdl3-dev` or Homebrew's `sdl3`). With SDL, give each SDL event to `imgui_impl_sdl3.ProcessEvent(&event)`
+before `NewFrame`.
 
 ```odin
 import im "imgui:imgui"
@@ -113,6 +118,33 @@ if im.Begin("Hello") {
 im.End()
 im.Render()
 imgui_impl_wgpu.RenderDrawData(im.GetDrawData(), render_pass)
+```
+
+With SDL's 2D renderer:
+
+```sh
+odin build . -collection:imgui=/path/to/imgui_odin -collection:sdl3="$(odin root)/vendor"
+```
+
+```odin
+import sdl "vendor:sdl3"
+import im "imgui:imgui"
+import "imgui:imgui/imgui_impl_sdl3"
+import "imgui:imgui/imgui_impl_sdlrenderer3"
+
+im.CreateContext()
+imgui_impl_sdl3.InitForSDLRenderer(window, renderer)
+imgui_impl_sdlrenderer3.Init(renderer)
+
+// Each frame, after giving the SDL events to imgui_impl_sdl3.ProcessEvent:
+imgui_impl_sdlrenderer3.NewFrame()
+imgui_impl_sdl3.NewFrame()
+im.NewFrame()
+im.ShowDemoWindow()
+im.Render()
+_ = sdl.RenderClear(renderer)
+imgui_impl_sdlrenderer3.RenderDrawData(im.GetDrawData(), renderer)
+_ = sdl.RenderPresent(renderer)
 ```
 
 Build options:
@@ -163,8 +195,8 @@ and publish a new release revision (see `build-imgui.yml`).
 
 ## Backends
 
-The backends are ports of Dear ImGui's `imgui_impl_glfw.cpp`, `imgui_impl_sdl3.cpp` and `imgui_impl_wgpu.cpp`, with the same
-procedures (`InitForOther`, `NewFrame`, `RenderDrawData`, `UpdateTexture`, `GetRenderState`...).
+The backends are ports of Dear ImGui's `imgui_impl_glfw.cpp`, `imgui_impl_sdl3.cpp`, `imgui_impl_sdlrenderer3.cpp` and
+`imgui_impl_wgpu.cpp`, with the same procedures (`InitForOther`, `NewFrame`, `RenderDrawData`, `UpdateTexture`, `GetRenderState`...).
 
 - `imgui_impl_glfw`: keyboard (with the translation of GLFW's untranslated keys), mouse, gamepad
   (`ConfigFlags.NavEnableGamepad`), cursors, clipboard, content scale, several contexts, chained user
@@ -173,7 +205,12 @@ procedures (`InitForOther`, `NewFrame`, `RenderDrawData`, `UpdateTexture`, `GetR
   not support either; docking works inside the main window.
 - `imgui_impl_sdl3`: keyboard (the keypad and OEM keys by scancode, as the C++ backend), mouse and touch screens
   as a mouse source, gamepads (the first, all, or the ones you pass, `SetGamepadMode`), cursors, clipboard, IME
-  (text input area), opening URLs, mouse capture modes. Imports `sdl3:sdl3`. Not yet: multi-viewports.
+  (text input area), opening URLs, mouse capture modes. Imports `sdl3:sdl3`, and compiles against sdl3_odin and
+  `vendor:sdl3`. Not yet: multi-viewports.
+- `imgui_impl_sdlrenderer3`: SDL's 2D renderer (`SDL_Renderer`): dynamic font atlas and user textures (an
+  `^sdl.Texture` as `TextureID`: `im.Image({_TexID = im.TextureID(uintptr(texture))}, {64, 64})`), large meshes, the
+  standard draw callbacks (the sampler ones set the textures' scale mode, restored after rendering). Imports `sdl3:sdl3`,
+  and needs an SDL with the 2D renderer, such as `vendor:sdl3` (above). Not yet: multi-viewports, as the C++ backend.
 - `imgui_impl_wgpu`: dynamic font atlas and user textures, large meshes, the standard draw callbacks
   (`PlatformIO.DrawCallback_*`). Imports `gpu:wgpu`, and uses only the API common to `vendor:wgpu` and `dawn_webgpu_odin`.
 
@@ -196,6 +233,9 @@ is built for them. The `build-imgui.yml` workflow does all of this and the relea
 odin test tools/gen      # the generator, and that the generated files match upstream/
 tools/abi/check.sh       # the bindings' layout against the C headers (needs the library); check.ps1 on Windows
 odin test tests          # Dear ImGui through the bindings, headless (needs the library)
+odin test tests/sdl3 -collection:sdl3=/path/to/sdl3_odin                 # imgui_impl_sdl3, SDL's dummy video driver
+odin test tests/sdl3 -collection:sdl3="$(odin root)/vendor"               # the same on vendor:sdl3
+odin test tests/sdlrenderer3 -collection:sdl3="$(odin root)/vendor"       # both SDL backends, offscreen and software renderer
 ```
 
 `.gitattributes` checks out every file with LF line endings, also on Windows, since the generator test
