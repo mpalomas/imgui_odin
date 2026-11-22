@@ -1,11 +1,14 @@
-// Dear ImGui platform backend for SDL 3, on the sdl3 collection (github.com/mpalomas/sdl3_odin). An Odin port of
-// backends/imgui_impl_sdl3.cpp of Dear ImGui 1.93.0 (docking), to use with a renderer backend such as imgui_impl_wgpu.
+// Dear ImGui platform backend for SDL 3, on the sdl3 collection (github.com/mpalomas/sdl3_odin, or Odin's vendor:sdl3).
+// An Odin port of backends/imgui_impl_sdl3.cpp of Dear ImGui 1.93.0 (docking), to use with a renderer backend such as
+// imgui_impl_wgpu or imgui_impl_sdlrenderer3.
 //
 // Implemented: clipboard, mouse (and touch screens as a mouse source), keyboard, gamepads (all SDL gamepads, or the
 // first one, or the ones you pass), mouse cursor shapes, IME (text input area and SDL_StartTextInput), opening URLs.
 // Not ported (yet): multi-viewports (ConfigFlags.ViewportsEnable is ignored; docking works inside the main window).
 //
-// It imports sdl3:sdl3, so build with -collection:sdl3=<a checkout of sdl3_odin>, the same SDL bindings as the program.
+// It imports sdl3:sdl3, so build with -collection:sdl3=<a checkout of sdl3_odin>, or -collection:sdl3=$(odin root)/vendor
+// for vendor:sdl3: the same SDL bindings as the program. vendor:sdl3 asks for SDL's bool results to be used, which the
+// backend ignores, as the C++ one does (`_ =`).
 //
 //	imgui_impl_sdl3.InitForOther(window)  // After im.CreateContext(), before the renderer's Init.
 //	// For each SDL event, before im.NewFrame():
@@ -122,7 +125,7 @@ update_ime :: proc "contextless" () {
 
 	// Stop the previous input.
 	if (!(data.WantVisible || data.WantTextInput) || bd.ime_window != window) && bd.ime_window != nil {
-		sdl.StopTextInput(bd.ime_window)
+		_ = sdl.StopTextInput(bd.ime_window)
 		bd.ime_window = nil
 	}
 	if (!bd.ime_dirty && bd.ime_window == window) || window == nil {
@@ -140,11 +143,11 @@ update_ime :: proc "contextless" () {
 			x = c.int(data.InputPos.x - viewport_pos.x), y = c.int(data.InputPos.y - viewport_pos.y), w = 1,
 			h = c.int(data.InputLineHeight),
 		}
-		sdl.SetTextInputArea(window, &r, 0)
+		_ = sdl.SetTextInputArea(window, &r, 0)
 		bd.ime_window = window
 	}
 	if !sdl.TextInputActive(window) && (data.WantVisible || data.WantTextInput) {
-		sdl.StartTextInput(window)
+		_ = sdl.StartTextInput(window)
 	}
 }
 
@@ -451,6 +454,11 @@ InitForMetal :: proc(window: ^sdl.Window) -> bool {
 	return init(window)
 }
 
+// For SDL's 2D renderer, with imgui_impl_sdlrenderer3.
+InitForSDLRenderer :: proc(window: ^sdl.Window, renderer: ^sdl.Renderer) -> bool {
+	return init(window)
+}
+
 // For WebGPU and other APIs.
 InitForOther :: proc(window: ^sdl.Window) -> bool {
 	return init(window)
@@ -483,7 +491,7 @@ Shutdown :: proc() {
 SetMouseCaptureMode :: proc(mode: Mouse_Capture_Mode) {
 	bd := get_backend_data()
 	if mode == .Disabled && bd.mouse_capture_mode != .Disabled {
-		sdl.CaptureMouse(false)
+		_ = sdl.CaptureMouse(false)
 	}
 	bd.mouse_capture_mode = mode
 }
@@ -501,13 +509,13 @@ update_mouse_data :: proc(bd: ^Data) {
 	if bd.mouse_can_use_global_state {
 		switch bd.mouse_capture_mode {
 		case .Enabled:
-			sdl.CaptureMouse(bd.mouse_buttons_down != 0)
+			_ = sdl.CaptureMouse(bd.mouse_buttons_down != 0)
 		case .Enabled_After_Drag:
 			want_capture := false
 			for button in 0 ..< im.MouseButton_COUNT {
 				want_capture ||= im.IsMouseDragging(im.MouseButton(button), 1)
 			}
-			sdl.CaptureMouse(want_capture)
+			_ = sdl.CaptureMouse(want_capture)
 		case .Disabled:
 		}
 	}
@@ -528,7 +536,7 @@ update_mouse_data :: proc(bd: ^Data) {
 	if hovered_window == nil && bd.mouse_can_use_global_state && bd.mouse_buttons_down == 0 && !relative {
 		mouse_x, mouse_y: f32
 		window_x, window_y: c.int
-		sdl.GetGlobalMouseState(&mouse_x, &mouse_y)
+		_ = sdl.GetGlobalMouseState(&mouse_x, &mouse_y)
 		sdl.GetWindowPosition(focused_window, &window_x, &window_y)
 		im.IO_AddMousePosEvent(io, mouse_x - f32(window_x), mouse_y - f32(window_y))
 	}
@@ -543,15 +551,15 @@ update_mouse_cursor :: proc(bd: ^Data) {
 	imgui_cursor := im.GetMouseCursor()
 	if io.MouseDrawCursor || imgui_cursor == .None {
 		// Hide the OS mouse cursor if imgui is drawing it or wants no cursor.
-		sdl.HideCursor()
+		_ = sdl.HideCursor()
 		return
 	}
 	expected := bd.mouse_cursors[imgui_cursor] if bd.mouse_cursors[imgui_cursor] != nil else bd.mouse_cursors[im.MouseCursor.Arrow]
 	if bd.mouse_last_cursor != expected {
-		sdl.SetCursor(expected) // SDL_SetCursor has no early out (ocornut/imgui#6113)
+		_ = sdl.SetCursor(expected) // SDL_SetCursor has no early out (ocornut/imgui#6113)
 		bd.mouse_last_cursor = expected
 	}
-	sdl.ShowCursor()
+	_ = sdl.ShowCursor()
 }
 
 //----------//

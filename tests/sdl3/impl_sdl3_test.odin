@@ -72,7 +72,7 @@ frame :: proc() -> (taken: int) {
 @(private = "file")
 push :: proc(event: sdl.Event) {
 	pushed := event
-	sdl.PushEvent(&pushed)
+	_ = sdl.PushEvent(&pushed)
 }
 
 @(test)
