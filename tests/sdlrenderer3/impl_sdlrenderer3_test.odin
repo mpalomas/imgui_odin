@@ -1,4 +1,4 @@
-// Runs imgui_impl_sdlrenderer3 with imgui_impl_sdl3 on SDL's offscreen video driver and software renderer, and reads
+// Runs imgui_impl_sdlrenderer3 with imgui_impl_sdl3 on SDL's dummy video driver and software renderer, and reads
 // back what they drew. Needs the Dear ImGui library and an SDL with its 2D renderer, e.g. Odin's vendor:sdl3 (the SDL3
 // development files on Linux, which vendor:sdl3 links):
 //
@@ -22,7 +22,7 @@ WIDTH :: 640
 @(private = "file")
 HEIGHT :: 480
 
-// Fixture is an offscreen window with a software renderer, an ImGui context and both backends on them.
+// Fixture is a dummy-driver window with a software renderer, an ImGui context and both backends on them.
 @(private = "file")
 Fixture :: struct {
 	window:   ^sdl.Window,
@@ -32,7 +32,7 @@ Fixture :: struct {
 
 @(private = "file")
 fixture_start :: proc(t: ^testing.T) -> (fixture: Fixture, ok: bool) {
-	sdl.SetHint(sdl.HINT_VIDEO_DRIVER, "offscreen")
+	sdl.SetHint(sdl.HINT_VIDEO_DRIVER, "dummy") // not offscreen: it loads EGL, which macOS does not have
 	if !testing.expectf(t, sdl.Init({.VIDEO}), "SDL_Init: %s", sdl.GetError()) {
 		return
 	}
@@ -141,7 +141,7 @@ test_window_and_text :: proc(t: ^testing.T) {
 	io := fixture.io
 	testing.expect_value(t, string(io.BackendRendererName), "imgui_impl_sdlrenderer3 (odin)")
 	testing.expect(t, io.BackendFlags >= {.RendererHasVtxOffset, .RendererHasTextures})
-	testing.expect(t, strings.contains(string(io.BackendPlatformName), "(offscreen)"))
+	testing.expect(t, strings.contains(string(io.BackendPlatformName), "(dummy)"))
 
 	hello :: proc() {
 		im.SetNextWindowPos({20, 20})

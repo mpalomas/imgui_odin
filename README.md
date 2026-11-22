@@ -30,7 +30,7 @@ Each script in `tools/` is a bash script (`.sh`) for Linux and macOS, with a Pow
 | `tools/fetch_imgui_libs.{sh,ps1}` | Downloads the prebuilt libraries matching the bindings. |
 | `tools/latest_dear_bindings.{sh,ps1}` | Prints the latest docking release of dear_bindings. |
 | `tools/fetch_wgpu_native.sh` | Downloads the wgpu-native libraries `vendor:wgpu` links on Linux, for the example. |
-| `tests/` | Runtime tests, headless; `tests/sdl3/` runs `imgui_impl_sdl3` on SDL's dummy video driver, `tests/sdlrenderer3/` both SDL backends on its offscreen driver and software renderer. |
+| `tests/` | Runtime tests, headless; `tests/sdl3/` runs `imgui_impl_sdl3` on SDL's dummy video driver, `tests/sdlrenderer3/` both SDL backends on the dummy driver and software renderer. |
 | `examples/glfw_wgpu/` | GLFW + WebGPU, with docking and the demo window. |
 | `examples/sdl3_wgpu/` | The same with SDL 3. |
 | `.github/` | CI, and the workflows that build and publish the library ([GitHub Actions](#github-actions)). |
@@ -235,7 +235,7 @@ tools/abi/check.sh       # the bindings' layout against the C headers (needs the
 odin test tests          # Dear ImGui through the bindings, headless (needs the library)
 odin test tests/sdl3 -collection:sdl3=/path/to/sdl3_odin                 # imgui_impl_sdl3, SDL's dummy video driver
 odin test tests/sdl3 -collection:sdl3="$(odin root)/vendor"               # the same on vendor:sdl3
-odin test tests/sdlrenderer3 -collection:sdl3="$(odin root)/vendor"       # both SDL backends, offscreen and software renderer
+odin test tests/sdlrenderer3 -collection:sdl3="$(odin root)/vendor"       # both SDL backends, dummy driver and software renderer
 ```
 
 `.gitattributes` checks out every file with LF line endings, also on Windows, since the generator test

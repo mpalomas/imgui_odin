@@ -132,7 +132,7 @@ jobs:
           odin test tests/sdl3 -collection:sdl3=deps/sdl3_odin -out:tests-sdl3.bin
 
       # Both SDL backends on Odin's vendor:sdl3, which links the system SDL (Homebrew's): the SDL_Renderer backend
-      # on the offscreen video driver and the software renderer. (Ubuntu 24.04 has no SDL 3 package.)
+      # on the dummy video driver and the software renderer. (Ubuntu 24.04 has no SDL 3 package.)
       - name: Run the SDL tests on vendor:sdl3
         if: runner.os == 'macOS'
         run: |
@@ -193,7 +193,7 @@ jobs:
           odin test tests/sdl3 -collection:sdl3=deps/sdl3_odin -out:tests-sdl3.exe
 
       # Both SDL backends on Odin's vendor:sdl3, which ships SDL3.dll for Windows: the SDL_Renderer backend on the
-      # offscreen video driver and the software renderer.
+      # dummy video driver and the software renderer.
       - name: Run the SDL tests on vendor:sdl3
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
